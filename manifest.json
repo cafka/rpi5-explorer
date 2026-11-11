@@ -1,0 +1,11 @@
+{
+  "name": "RPi5 Explorer",
+  "short_name": "RPi5",
+  "description": "Exploración educativa de Raspberry Pi 5 con la cámara del teléfono",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "orientation": "portrait-primary",
+  "icons": []
+}
