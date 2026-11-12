@@ -1,42 +1,77 @@
 {
   "image": {
-    "file": "rpi5_ref.png",
-    "width": 800,
-    "height": 600,
-    "kind": "sintética provisional",
-    "test_fixture": "rpi5_ref_800x600.rgba",
-    "origin": "Esquema sintético generado por make_reference.py. Proporciones basadas en Raspberry Pi 5 Product Brief. Material de ajuste; no usar como conjunto de evaluación.",
-    "created": "2026-11-11"
+    "file": "rpi5_claudia_ref.jpg",
+    "width": 1024,
+    "height": 768,
+    "sha256": "eebafe3cdc05c5b54f96179824560944adb81036dfc1d2b3d98d816b828a8be9",
+    "kind": "foto real",
+    "test_fixture": "rpi5_claudia_ref.jpg.rgba",
+    "origin": "Foto propia de Claudia de su Raspberry Pi 5 (archivo rbpi5.jfif, JPEG 2000x1500 sin EXIF; incluye marca de agua de la cámara HONOR Magic6 Lite, excluida por la máscara de placa). Fecha de captura no registrada en el archivo.",
+    "source_photo_size": [
+      2000,
+      1500
+    ],
+    "scale_from_source": 0.512,
+    "metadata": "EXIF aplicado a la orientación y descartado al guardar (sin GPS ni datos del equipo)",
+    "created": "2026-11-11",
+    "note": "Material de ajuste/desarrollo. Las pruebas derivadas de esta foto no son evaluación independiente."
   },
+  "board_polygon_px": [
+    [
+      81.9,
+      97.3
+    ],
+    [
+      952.3,
+      102.4
+    ],
+    [
+      990.7,
+      138.2
+    ],
+    [
+      990.7,
+      665.6
+    ],
+    [
+      952.3,
+      688.6
+    ],
+    [
+      56.3,
+      696.3
+    ],
+    [
+      56.3,
+      312.3
+    ]
+  ],
   "zones": [
     {
       "id": "gpio",
       "name": "GPIO 40-pin header",
-      "description": "Conector de 2×20 pines en el borde superior izquierdo de la placa",
+      "description": "Conector de 2×20 pines (bloque GPIO) de la Raspberry Pi 5",
       "polygon_px": [
         [
-          62,
-          78
+          423.9,
+          610.8
         ],
         [
-          474,
-          78
+          939.5,
+          610.8
         ],
         [
-          474,
-          122
+          939.5,
+          674.8
         ],
         [
-          62,
-          122
+          423.9,
+          674.8
         ]
       ],
-      "label_offset_px": [
-        204,
-        56
-      ],
-      "source": "Raspberry Pi 5 Product Brief — raspberrypi.com/products/raspberry-pi-5/",
+      "source": "Raspberry Pi — documentación de hardware y GPIO: https://www.raspberrypi.com/documentation/computers/raspberry-pi.html",
       "consulted": "2026-11-11"
     }
-  ]
+  ],
+  "previous_reference": "rpi5_ref.png (esquema sintético, reemplazado; se conserva como antecedente)"
 }
