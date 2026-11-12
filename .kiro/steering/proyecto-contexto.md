@@ -131,6 +131,14 @@ restricciones de getUserMedia. Avanzar sin ese dato; registrar al probar.
 
 ## Próxima tarea autorizada
 
-T1: cámara en vivo, congelado y reanudación.
-Requiere definir el acceso (ver sección «Plataforma propuesta»).
+T2: localización real de una zona en video y en el teléfono.
+Requiere T1 verificado en teléfono real e indicación expresa.
 Ver criterios completos: .kiro/specs/rpi5-visual-explorer/tasks.md
+
+## Repositorio y acceso
+
+- Git inicializado. Repositorio: https://github.com/cafka/rpi5-explorer
+- URL de la app: **https://cafka.github.io/rpi5-explorer/**
+- Rama `main`: código de desarrollo y documentación.
+- Rama `gh-pages`: build de la app servido por GitHub Pages.
+- Desarrollo local: `node serve.js` → http://localhost:3000

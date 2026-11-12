@@ -2,8 +2,8 @@
 
 **Fecha**: 11 de noviembre de 2026
 **Versión del plan**: 1.1
-**Bloque actual**: T1 (siguiente a ejecutar — requiere indicación expresa)
-**Último cambio**: T0 cerrado con correcciones v1.1
+**Bloque actual**: T1 implementado — verificación en teléfono real pendiente
+**Último cambio**: T1 — cámara en vivo, congelado y reanudación (PWA)
 **Nota**: este registro no se sincroniza automáticamente con Drive.
 
 ---
@@ -14,19 +14,91 @@
 |----------------------------------------------------------|-------------------------------|
 | `task1_probe.py`                                         | Existente — alcance reemplazado, conservado |
 | `Kiro_Correccion_T0_v1_1.md`                             | Instrucciones y contexto v1.1 incorporados en T0 |
-| `status.md` (este archivo)                               | Creado en T0, corregido a v1.1 |
+| `status.md` (este archivo)                               | Creado en T0, actualizado en T1 |
+| `serve.js`                                               | Creado en T1 — servidor local para desarrollo |
+| `.gitignore` / `.gitattributes`                          | Creados en T1 |
+| `app/index.html`                                         | Creado en T1 — shell PWA |
+| `app/camera.js`                                          | Creado en T1 — cámara, congelado, reanudación |
+| `app/manifest.json`                                      | Creado en T1 — manifest PWA |
+| `tests/t1_camera_logic.test.mjs`                         | Creado en T1 — pruebas de lógica (escritorio) |
 | `.kiro/steering/proyecto-contexto.md`                    | Creado en T0, corregido a v1.1 |
 | `.kiro/specs/rpi5-visual-explorer/requirements.md`       | Creado en T0, corregido a v1.1 |
 | `.kiro/specs/rpi5-visual-explorer/design.md`             | Creado en T0, corregido a v1.1 |
 | `.kiro/specs/rpi5-visual-explorer/tasks.md`              | Creado en T0, corregido a v1.1 |
 | `01_Reglas...v1.0.md` *(retirado)*                       | Borrado en T0; versión v1.1 en `Kiro_Correccion_T0_v1_1.md` |
 | `02_Planificación...v1.0.md` *(retirado)*                | Borrado en T0; versión v1.1 en `Kiro_Correccion_T0_v1_1.md` |
-| `app/` (toda la carpeta)                                 | No existe — se crea en T1     |
-| `data/` (toda la carpeta)                                | No existe — se crea en T2/T4  |
+| `app/localizer.js`                                       | No existe — se crea en T2     |
+| `data/`                                                  | No existe — se crea en T2/T4  |
 
 ---
 
-## Verificaciones ejecutadas en T0 (11/11/2026)
+## T1 — Cámara en vivo, congelado y reanudación (11/11/2026)
+
+### Plataforma adoptada
+PWA (Progressive Web App). Decisión justificada en steering/proyecto-contexto.md.
+Repositorio: https://github.com/cafka/rpi5-explorer
+URL de acceso: **https://cafka.github.io/rpi5-explorer/**
+
+### Archivos creados
+- `app/index.html`, `app/camera.js`, `app/manifest.json`
+- `serve.js` (servidor local para desarrollo)
+- `tests/t1_camera_logic.test.mjs`
+- `.gitignore`, `.gitattributes`
+
+### Pruebas ejecutadas
+
+**Categoría: ESCRITORIO / SIMULADO (sin cámara real)**
+
+| Prueba                                              | Resultado |
+|-----------------------------------------------------|-----------|
+| freeze() en live → estado frozen                    | ✓         |
+| freeze() cancela el loop (rafActive=false)          | ✓         |
+| freeze() guarda frozenFrame no nulo                 | ✓         |
+| freeze() en frozen → no hace nada                   | ✓         |
+| freeze() en idle → no hace nada                     | ✓         |
+| resume() en frozen → estado live                    | ✓         |
+| resume() descarta frozenFrame (null)                | ✓         |
+| resume() reactiva el loop                           | ✓         |
+| resume() en live → no hace nada                     | ✓         |
+| setError() cancela el loop                          | ✓         |
+| getFrozenFrame() en live devuelve null              | ✓         |
+| frozenFrame conserva datos entre llamadas           | ✓         |
+| Mensajes de error: NotAllowedError, NotFoundError…  | ✓ (5 casos)|
+| Sintaxis camera.js (node --check)                   | ✓         |
+| Sintaxis serve.js (node --check)                    | ✓         |
+| **Total**                                           | **17/17** |
+
+**Categoría: TELÉFONO REAL — PENDIENTE**
+No verificado. No reemplazado por las pruebas de escritorio.
+
+### No verificado (requiere teléfono real)
+- Video de cámara trasera visible en el teléfono.
+- getUserMedia concede permiso y abre la cámara.
+- «Congelar imagen» detiene el video en el teléfono.
+- «Volver a cámara» reanuda correctamente.
+- Mensaje de error al denegar permiso.
+- Acceso desde la URL https://cafka.github.io/rpi5-explorer/ en el teléfono.
+
+### Pasos para verificar en teléfono real
+1. Esperar a que GitHub Pages termine de construir (estado actual: «building»).
+   Verificar en: https://github.com/cafka/rpi5-explorer/actions
+   O comprobar: https://cafka.github.io/rpi5-explorer/ hasta que cargue.
+2. Abrir esa URL en el navegador del teléfono (Chrome/Safari).
+3. Aceptar el permiso de cámara cuando el navegador lo pida.
+4. Verificar que el video de la cámara trasera se ve en pantalla.
+5. Pulsar «Congelar imagen» — el video debe detenerse.
+6. Pulsar «Volver a cámara» — el video debe reanudarse.
+7. Denegar el permiso de cámara y verificar que aparece un mensaje claro.
+8. Registrar: modelo del teléfono, SO, navegador y versión.
+
+### Acceso desde computadora
+La misma URL funciona en cualquier navegador de escritorio que tenga cámara.
+Sin cámara, se mostrará el error «No se encontró cámara» — comportamiento correcto.
+Para desarrollo local sin teléfono: `node serve.js` → abrir http://localhost:3000
+
+---
+
+## Verificaciones acumuladas
 
 | Verificación                                    | Resultado                                                      |
 |-------------------------------------------------|----------------------------------------------------------------|
@@ -42,7 +114,10 @@
 | npm 11.9.0                                      | ✓ Disponible                                                   |
 | opencv-python                                   | No instalado — no es dependencia del diseño propuesto           |
 | OpenCV.js (funciones ORB/AKAZE/RANSAC)          | No verificado — requiere comprobar compilación específica       |
-| Git inicializado                                | No es repositorio Git todavía                                  |
+| Git inicializado                                | ✓ Inicializado en T1; repositorio en github.com/cafka/rpi5-explorer |
+| Node.js — pruebas T1 (17/17)                    | ✓ Pasan (escritorio, sin cámara real)                          |
+| GitHub Pages — URL de acceso                    | https://cafka.github.io/rpi5-explorer/ (estado: building al crear) |
+| Verificación en teléfono real                   | ⬜ PENDIENTE — ver pasos en sección T1                         |
 
 ---
 
@@ -69,14 +144,10 @@ task1_probe.py pertenece al alcance reemplazado. Se conserva sin modificar.
 
 ## Fallos abiertos
 
-- Ninguno estructural en T0.
-- Correcciones de evidencia y plataforma aplicadas en v1.1 (ver sección correcciones en tasks.md).
-- Pendiente: confirmar plataforma (propuesta PWA justificada en steering/proyecto-contexto.md).
-- Pendiente: obtener modelo y SO del teléfono de Claudia antes de probar T1.
+- Verificación en teléfono real pendiente (ver pasos en sección T1).
+- Modelo y SO del teléfono de Claudia: no registrados todavía.
 - Pendiente: obtener o tomar una foto de referencia de la Raspberry Pi 5
   propia de Claudia (necesaria para T2; no para T1).
-- Pendiente: inicializar Git si se desea control de versiones del código.
-- Pendiente: documentar acceso seguro elegido y sus límites antes de T1.
 - Pendiente (hallazgo 5): definir qué funciones estarán disponibles desde
   computadora. No bloquea T1; retomar al preparar T4–T5.
 
@@ -84,19 +155,9 @@ task1_probe.py pertenece al alcance reemplazado. Se conserva sin modificar.
 
 ## Próxima acción
 
-**T1 — Cámara en vivo, congelado y reanudación**
+**T2 — Localización real de una zona** (requiere indicación expresa)
 
-Requiere indicación expresa para ejecutar. Antes de implementar:
-
-1. Confirmar plataforma: PWA es la propuesta; si hay objeción, discutirla.
-2. Registrar modelo y SO del teléfono (no es bloqueante para escribir el
-   código, sí para verificarlo).
-3. Elegir acceso seguro para prueba en teléfono:
-   - mkcert + Node: mismo Wi-Fi, instalar certificado raíz en el teléfono.
-   - Cloudflare Tunnel: cualquier red, sin instalar certificado en el teléfono.
-   - GitHub Pages: solo si no hay servidor dinámico en T1.
-   Kiro puede implementar cualquiera de las dos primeras opciones y documentar
-   los pasos; no es necesario que Claudia elija herramientas sin recomendación.
-
-Criterio de aceptación de T1: ver el video de la cámara trasera en el
-teléfono real y poder congelar/reanudar. Sin localización ni etiquetas.
+Bloqueo hasta que se verifique T1 en teléfono real. Una vez verificado:
+- Preparar imagen de referencia de la Raspberry Pi 5 de Claudia.
+- Comprobar qué funciones expone la compilación de OpenCV.js disponible.
+- Iniciar el experimento de localización de una zona (ver tasks.md T2).
