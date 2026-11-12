@@ -33,6 +33,7 @@ export const Localizer = (() => {
   let _refKeypoints = null, _refDescriptors = null, _orb = null, _orbFrame = null, _matcher = null;
   let _refW = 0, _refH = 0;
   let _refInfo = null;           // { width, height, keypoints, boardMask }
+  let _boardPoly = null;         // contorno de placa en la referencia (para diagnóstico)
   let _zones = [];               // [{ id, name, polygon_px, bbox:{x,y,w,h}, patch: cv.Mat }]
 
   // ── Parámetros (hipótesis iniciales) ────────────────────────────────────────
@@ -227,6 +228,7 @@ export const Localizer = (() => {
       // placa, para que el fondo, la cuadrícula o una marca de agua de la foto no aporten
       // correspondencias falsas.
       const board = zonesJson.board_polygon_px;
+      _boardPoly = Array.isArray(board) && board.length >= 3 ? board : null;
       if (Array.isArray(board) && board.length >= 3) {
         noMask = cv.Mat.zeros(gray.rows, gray.cols, cv.CV_8UC1);
         const pts = cv.matFromArray(board.length, 1, cv.CV_32SC2, board.flat().map(Math.round));
@@ -332,13 +334,29 @@ export const Localizer = (() => {
       const inl = [];
       for (let i = 0; i < mask.rows; i++) if (mask.data[i]) inl.push(i);
       const diag = { frameKeypoints: nKp, matchesUsed: good.length, inliers: inl.length };
-      if (inl.length < MIN_INLIERS || inl.length / good.length < INLIER_RATIO_MIN) return empty(diag);
-
       const h = Array.from(Hm.data64F);
+
+      // Diagnóstico (solo ?debug=1): homografía, contorno de placa proyectado e inliers
+      // en coordenadas del fotograma PROCESADO. No interviene en la decisión.
+      const dbg = _debug ? {
+        H: h.map(v => Math.round(v * 1e6) / 1e6),
+        board: _boardPoly ? projectPolygon(cv, Hm, _boardPoly).map(([x, y]) => [Math.round(x), Math.round(y)]) : null,
+        inlierPts: inl.slice(0, 400).map(i => [Math.round(dst[2 * i]), Math.round(dst[2 * i + 1])]),
+        procW: W, procH: H,
+      } : null;
+
+      if (inl.length < MIN_INLIERS || inl.length / good.length < INLIER_RATIO_MIN) {
+        const r = empty(diag);
+        return dbg ? { ...r, debug: dbg } : r;
+      }
+
       const zones = _zones.map(z => {
         const poly = projectPolygon(cv, Hm, z.polygon_px);
         const none = { id: z.id, name: z.name, visible: false, polygon: null, labelPt: null };
-        if (!isPolygonPlausible(poly, W, H)) return { ...none, evidence: { reason: "geometría" } };
+        if (!isPolygonPlausible(poly, W, H)) {
+          return { ...none, evidence: { reason: "geometría" },
+                   ...(_debug ? { polygonDebug: poly.map(([x, y]) => [Math.round(x), Math.round(y)]) } : {}) };
+        }
 
         const zoneInliers = inl.filter(i => pointInPolygon(refPts[i][0], refPts[i][1], z.polygon_px)).length;
         const sim = zoneSimilarity(cv, gray, h, z);
@@ -362,7 +380,8 @@ export const Localizer = (() => {
                  ...(_debug ? { debugPatch: sim.debugPatch } : {}) };
       });
 
-      return { found: true, zones, diagMetrics: { ...diag, processingMs: Math.round(performance.now() - t0) } };
+      return { found: true, zones, diagMetrics: { ...diag, processingMs: Math.round(performance.now() - t0) },
+               ...(dbg ? { debug: dbg } : {}) };
     } catch (e) {
       warn("locate: " + (e && e.message ? e.message : e));
       return empty();

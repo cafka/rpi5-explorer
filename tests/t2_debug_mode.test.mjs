@@ -19,10 +19,22 @@ describe("modo diagnóstico (?debug=1)", () => {
   });
 
   it("toda llamada a drawDebug / showDebugPanel está condicionada a DEBUG", () => {
-    const calls = [...app.matchAll(/^(.*)(Overlay\.drawDebug|showDebugPanel)\(/gm)]
-      .filter(m => !/function showDebugPanel/.test(m[0]));
+    // Cada llamada debe estar en la misma línea que `if (DEBUG)` o dentro de un bloque
+    // `if (DEBUG) {` abierto antes y no cerrado (conteo de llaves entre ambos puntos).
+    const calls = [...app.matchAll(/(Overlay\.drawDebug|showDebugPanel)\(/g)]
+      .filter(m => !/function showDebugPanel\($/.test(app.slice(Math.max(0, m.index - 9), m.index + 15)))
+      .filter(m => !app.slice(Math.max(0, m.index - 9), m.index).includes("function "));
     assert.ok(calls.length >= 2);
-    for (const m of calls) assert.match(m[1], /if \(DEBUG\)/, `sin guardia: ${m[0].trim()}`);
+    for (const m of calls) {
+      const before = app.slice(0, m.index);
+      const lineStart = before.lastIndexOf("\n") + 1;
+      if (/if \(DEBUG\)/.test(app.slice(lineStart, m.index))) continue;
+      const open = before.lastIndexOf("if (DEBUG) {");
+      assert.ok(open >= 0, `sin guardia en índice ${m.index}`);
+      const between = app.slice(open + "if (DEBUG) ".length, m.index);
+      const depth = [...between].reduce((d, c) => d + (c === "{") - (c === "}"), 0);
+      assert.ok(depth > 0, `la llamada en índice ${m.index} está fuera del bloque if (DEBUG)`);
+    }
   });
 
   it("la decisión de aceptar la zona no depende de _debug ni de la métrica candidata", () => {

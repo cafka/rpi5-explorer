@@ -19,7 +19,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const APP  = path.join(ROOT, "app");
 const html = readFileSync(path.join(APP, "index.html"), "utf8");
 const scripts = [...html.matchAll(/<script\b([^>]*)>/gi)].map(m => m[1]);
-const srcOf = attrs => (attrs.match(/\bsrc="([^"]+)"/) || [])[1];
+// src sin el parámetro de versión (?v=...): es el nombre de archivo real
+const srcOf = attrs => ((attrs.match(/\bsrc="([^"]+)"/) || [])[1] || "").split("?")[0] || undefined;
 
 describe("index.html — carga de scripts", () => {
   it("carga camera.js exactamente una vez", () => {
@@ -31,7 +32,9 @@ describe("index.html — carga de scripts", () => {
   });
 
   it("camera.js se declara antes que app.js (los hooks deben existir al registrar)", () => {
-    assert.ok(html.indexOf('src="camera.js"') < html.indexOf('src="app.js"'));
+    const cam = html.indexOf('src="camera.js'), app = html.indexOf('src="app.js');
+    assert.ok(cam >= 0 && app >= 0, "faltan camera.js o app.js");
+    assert.ok(cam < app);
   });
 
   it("OpenCV.js se carga desde vendor/ local, no desde una URL externa", () => {
@@ -72,6 +75,27 @@ describe("index.html — carga de scripts", () => {
     const appJs = readFileSync(path.join(APP, "app.js"), "utf8");
     assert.match(appJs, /crypto\.subtle\.digest\("SHA-256"/);
     assert.match(appJs, /sha256:\$\{ref\.sha\.slice/);
+  });
+});
+
+describe("versión publicada (evita mezclar archivos por la caché de GitHub Pages)", () => {
+  const appJs = readFileSync(path.join(APP, "app.js"), "utf8");
+  const build = (appJs.match(/const BUILD = "([^"]+)"/) || [])[1];
+
+  it("app.js declara BUILD y lo muestra en la línea DIAGNÓSTICO", () => {
+    assert.ok(build, "falta const BUILD");
+    assert.match(appJs, /DIAGNÓSTICO \$\{BUILD\}/);
+  });
+
+  it("index.html carga camera.js y app.js con ?v=BUILD", () => {
+    assert.ok(html.includes(`src="camera.js?v=${build}"`));
+    assert.ok(html.includes(`src="app.js?v=${build}"`));
+  });
+
+  it("app.js importa localizer, overlay y coords con ?v=BUILD", () => {
+    for (const m of ["localizer", "overlay", "coords"]) {
+      assert.ok(appJs.includes(`"./${m}.js?v=${build}"`), `import de ${m} sin ?v=${build}`);
+    }
   });
 });
 

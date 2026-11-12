@@ -81,6 +81,14 @@ try {
   })`);
   console.log("[congelado]", fr);
 
+  // Opcional: guardar el diagnóstico exportable (mismo objeto que baja el botón del panel)
+  if (process.env.SAVE_DIAG) {
+    const diag = await evalJs(`JSON.stringify(window.buildDiagnostic ? window.buildDiagnostic() : null)`);
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(process.env.SAVE_DIAG, diag || "null");
+    console.log("[diagnóstico guardado]", process.env.SAVE_DIAG, diag ? `${diag.length} bytes` : "null");
+  }
+
   await evalJs(`document.getElementById('btn-resume').click()`);
   await sleep(4000);
   const rs = await evalJs(`JSON.stringify({

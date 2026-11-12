@@ -136,6 +136,33 @@ describe("localizer.js real + OpenCV.js 4.9.0 (simulado, escritorio)", () => {
     });
   }
 
+  it("Placa girada 90° en cuadro vertical (como en el teléfono): polígono cerca del esperado", () => {
+    // Giro horario: (x, y) → (Href − y, x), luego escala 0,8 y desplazamiento; salida vertical
+    const Hr = zones.image.height, s = 0.8, tx = 60, ty = 90;
+    const H = [0, -s, s * Hr + tx, s, 0, ty, 0, 0, 1];
+    const outW = Math.round(zones.image.height * 1.0), outH = Math.round(zones.image.width * 1.0);
+    const r = Localizer.locate(warped(H, outW, outH));
+    assert.equal(r.found, true, JSON.stringify(r.diagMetrics));
+    const g = r.zones.find(z => z.id === "gpio");
+    assert.equal(g.visible, true, `evidencia: ${JSON.stringify(g.evidence)}`);
+    const expected = gpioRef.map(p => applyH(H, p));
+    assert.ok(maxCornerError(g.polygon, expected) < 12, `error ${maxCornerError(g.polygon, expected).toFixed(1)} px`);
+  });
+
+  it("Diagnóstico: contorno de placa e inliers coherentes con la homografía conocida", () => {
+    const H = [0.9, 0, 40, 0, 0.9, 30, 0, 0, 1];
+    Localizer.setDebug(true);
+    const r = Localizer.locate(warped(H));
+    Localizer.setDebug(false);
+    assert.ok(r.debug && Array.isArray(r.debug.board) && r.debug.inlierPts.length > 50);
+    const expectedBoard = zones.board_polygon_px.map(p => applyH(H, p));
+    assert.ok(maxCornerError(r.debug.board, expectedBoard) < 12, "contorno de placa desplazado");
+    assert.equal(r.debug.procW, zones.image.width);
+    for (const [x, y] of r.debug.inlierPts) {
+      assert.ok(x >= 0 && x < zones.image.width && y >= 0 && y < zones.image.height);
+    }
+  });
+
   it("Oclusión simulada (GPIO pintado de negro): no se acepta la zona GPIO", () => {
     const m = refMat();
     const xs = gpioRef.map(p => p[0]), ys = gpioRef.map(p => p[1]);

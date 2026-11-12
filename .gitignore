@@ -5,3 +5,6 @@ Thumbs.db
 
 # Fotos originales (pueden contener EXIF/GPS). Solo se publica la copia sin metadatos generada por tools/make_reference_from_photo.py
 referencia_original/
+
+# Diagnósticos guardados desde el teléfono y sus reproducciones (datos de prueba locales)
+diagnosticos/
