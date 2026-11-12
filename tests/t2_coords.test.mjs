@@ -17,6 +17,27 @@ describe("procSize — fotograma procesado", () => {
       assert.ok(Math.abs(ph * k - H) < 0.6, `${W}x${H}: ${ph}*${k}=${ph * k}`);
     }
   });
+  it("variante 360 px: teléfono 720x1280 → 360x640, k = 2 (proporción conservada)", () => {
+    const { k, pw, ph } = procSize(720, 1280, 360);
+    assert.equal(pw, 360); assert.equal(ph, 640); assert.equal(k, 2);
+    assert.ok(Math.abs(pw / ph - 720 / 1280) < 1e-9);
+  });
+  it("variante 360 px: otras cámaras conservan la proporción con < 0,6 px de error", () => {
+    for (const [W, H] of [[1080, 1920], [1280, 720], [480, 640], [1440, 2560]]) {
+      const { k, pw, ph } = procSize(W, H, 360);
+      assert.equal(pw, 360);
+      assert.ok(Math.abs(ph * k - H) < 0.6 * k, `${W}x${H}`);
+    }
+  });
+  it("variante 360 px: punto procesado → canvas → pantalla coincide con el cálculo directo", () => {
+    const { k } = procSize(720, 1280, 360);
+    const raw = { found: true, zones: [{ id: "gpio", visible: true, polygon: [[100, 200], [140, 200], [140, 400], [100, 400]], labelPt: [120, 190] }] };
+    const s = scaleResult(raw, k);
+    assert.deepEqual(s.zones[0].polygon, [[200, 400], [280, 400], [280, 800], [200, 800]]);
+    const m = coverMapping(720, 1280, 369, 640);
+    const [x, y] = m.toScreen(s.zones[0].polygon[0]);
+    assert.ok(Math.abs(x - (200 * m.scale + m.offsetX)) < 1e-9 && Math.abs(y - (400 * m.scale + m.offsetY)) < 1e-9);
+  });
   it("sin reducción cuando el ancho ya es ≤ 640", () => {
     assert.deepEqual(procSize(480, 640, 640), { k: 1, pw: 480, ph: 640 });
   });

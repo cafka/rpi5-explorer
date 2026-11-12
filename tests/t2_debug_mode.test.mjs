@@ -25,6 +25,20 @@ describe("modo diagnóstico (?debug=1)", () => {
     assert.match(app, /if \(DEBUG\) showVariantBar\(\);/);
   });
 
+  it("variante AKAZE 360 px: solo diagnóstico; el modo normal sigue en 640 px", () => {
+    assert.match(app, /akaze360: \{ label: "AKAZE · 360 px",\s*cfg: \{ detector: "akaze" \}, procW: 360 \}/);
+    assert.match(app, /const PROC_MAX_W = 640;/);
+    assert.match(app, /const PROC_W = VARIANT\.procW \|\| PROC_MAX_W;/);
+    assert.match(app, /procSize\(W, H, PROC_W\)/);
+    // Sin ?debug=1 VARIANT_ID es orb800 (sin procW) → PROC_W = 640
+    assert.match(app, /const VARIANT_ID = DEBUG && VARIANTS\[/);
+  });
+
+  it("la sesión exporta las dimensiones del cuadro analizado y el ancho de la variante", () => {
+    assert.match(app, /processedSize: \{ width: _work\.width, height: _work\.height \}/);
+    assert.match(app, /variant: \{ id: VARIANT_ID, cfg: Localizer\.getConfig\(\), procW: PROC_W \}/);
+  });
+
   it("tocar la línea DIAGNÓSTICO alterna el modo (recarga con o sin ?debug=1)", () => {
     assert.match(app, /diagLine\.addEventListener\("click"/);
     assert.match(app, /searchParams\.set\("debug", "1"\)/);

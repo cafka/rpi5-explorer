@@ -300,6 +300,33 @@ describe("localizer.js real + OpenCV.js 4.9.0 (simulado, escritorio)", () => {
     });
   }
 
+  it("AKAZE en cuadro de 360 px de ancho (placa pequeña): ubica placa y GPIO cerca del esperado", async () => {
+    Localizer.configure({ detector: "akaze" });
+    const ref = refMat();
+    await Localizer.init(cv, imageDataFromMat(ref), zones);
+    ref.delete();
+    try {
+      // Placa girada 90° y reducida a ~0,4 en un cuadro vertical de 360x640
+      const Hr = zones.image.height, s = 0.42, tx = 20, ty = 110;
+      const H = [0, -s, s * Hr + tx, s, 0, ty, 0, 0, 1];
+      Localizer.setDebug(true);
+      const r = Localizer.locate(warped(H, 360, 640));
+      Localizer.setDebug(false);
+      assert.equal(r.found, true, JSON.stringify(r.diagMetrics));
+      const g = r.zones.find(z => z.id === "gpio");
+      const err = maxCornerError(g.polygon || g.polygonDebug, gpioRef.map(p => applyH(H, p)));
+      assert.ok(err < 4, `error ${err.toFixed(1)} px (en el cuadro de 360 px)`);
+      // Dimensiones del cuadro realmente analizado (informadas en modo diagnóstico)
+      assert.equal(r.debug.procW, 360);
+      assert.equal(r.debug.procH, 640);
+    } finally {
+      Localizer.configure();
+      const r2 = refMat();
+      await Localizer.init(cv, imageDataFromMat(r2), zones);
+      r2.delete();
+    }
+  });
+
   it("Escena negativa uniforme (sin textura): found=false", () => {
     const W = 640, H = 480, data = new Uint8ClampedArray(W * H * 4).fill(128);
     const r = Localizer.locate({ width: W, height: H, data });
