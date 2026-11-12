@@ -255,6 +255,51 @@ describe("localizer.js real + OpenCV.js 4.9.0 (simulado, escritorio)", () => {
     assert.equal(v.evidence.lowSeg.length, 3);
   });
 
+  it("configure(): valores por defecto del modo normal sin cambios", () => {
+    assert.deepEqual(Localizer.getConfig(), { detector: "orb", refFeatures: 1500, frameFeatures: 800, ratio: 0.75 });
+  });
+
+  // maxErr: error máximo de la proyección del GPIO. mustLabel: si debe superar el criterio.
+  // Medido (12/11/2026): ratio 0,85 suma coincidencias pero la homografía queda ~5 px menos
+  // precisa y el GPIO (patrón repetitivo de ~10 px) cae bajo el umbral → mustLabel=false.
+  for (const [name, cfg, maxErr, mustLabel] of [
+    ["ORB 1500", { frameFeatures: 1500 }, 4, true],
+    ["ratio 0,8", { ratio: 0.8 }, 4, true],
+    ["ratio 0,85", { ratio: 0.85 }, 8, false],
+    ["AKAZE", { detector: "akaze" }, 4, true],
+  ]) {
+    it(`Variante de diagnóstico ${name}: localiza la placa (error GPIO < ${maxErr} px) y rechaza la oclusión`, async () => {
+      Localizer.configure(cfg);
+      const ref = refMat();
+      await Localizer.init(cv, imageDataFromMat(ref), zones);
+      ref.delete();
+      try {
+        const H = [0.9, 0, 40, 0, 0.9, 30, 0, 0, 1];
+        Localizer.setDebug(true);
+        const r = Localizer.locate(warped(H));
+        Localizer.setDebug(false);
+        const g = r.zones.find(z => z.id === "gpio");
+        assert.equal(r.found, true, JSON.stringify(r.diagMetrics));
+        const err = maxCornerError(g.polygon || g.polygonDebug, gpioRef.map(p => applyH(H, p)));
+        assert.ok(err < maxErr, `error ${err.toFixed(1)} px`);
+        if (mustLabel) assert.equal(g.visible, true, `evidencia: ${JSON.stringify(g.evidence)}`);
+        const m = refMat();
+        const xs = gpioRef.map(p => p[0]), ys = gpioRef.map(p => p[1]);
+        cv.rectangle(m, new cv.Point(Math.min(...xs), Math.min(...ys)), new cv.Point(Math.max(...xs), Math.max(...ys)),
+                     new cv.Scalar(205, 160, 130, 255), -1);
+        const o = Localizer.locate(imageDataFromMat(m)).zones.find(z => z.id === "gpio");
+        m.delete();
+        assert.equal(o.visible, false);
+      } finally {
+        // Volver a la configuración normal para el resto de las pruebas
+        Localizer.configure();
+        const r2 = refMat();
+        await Localizer.init(cv, imageDataFromMat(r2), zones);
+        r2.delete();
+      }
+    });
+  }
+
   it("Escena negativa uniforme (sin textura): found=false", () => {
     const W = 640, H = 480, data = new Uint8ClampedArray(W * H * 4).fill(128);
     const r = Localizer.locate({ width: W, height: H, data });

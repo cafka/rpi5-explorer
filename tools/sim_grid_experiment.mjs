@@ -2,8 +2,7 @@
  * sim_grid_experiment.mjs — corre el localizer.js real sobre los cuadros de
  * sim_grid_experiment.py con distintos puntos ORB por fotograma, y mide:
  * matches, inliers, error de la proyección del GPIO respecto de la verdad conocida,
- * ncc por tramo y tiempo. Para cambiar la cantidad de puntos se carga una COPIA en
- * memoria del módulo con la constante sustituida; app/localizer.js no se modifica.
+ * ncc por tramo y tiempo. app/localizer.js no se modifica.
  *
  * Uso: node tools/sim_grid_experiment.mjs <carpeta> [800,1500,2500]
  * Categoría: SIMULADA (desarrollo). No es evaluación independiente.
@@ -11,14 +10,13 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const [dir, list = "800,1500,2500"] = process.argv.slice(2);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const zones = JSON.parse(readFileSync(path.join(ROOT, "app/data/zones.json"), "utf8"));
 const cases = JSON.parse(readFileSync(path.join(dir, "cases.json"), "utf8"));
-const src = readFileSync(path.join(ROOT, "app/localizer.js"), "utf8");
 
 const { cv } = await new Promise(res => {
   let mod = null;
@@ -31,10 +29,9 @@ const ref = { width: RW, height: RH, data: new Uint8ClampedArray(readFileSync(pa
 const gpio = zones.zones[0].polygon_px;
 const applyH = (h, [x, y]) => { const w = h[6] * x + h[7] * y + h[8]; return [(h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w]; };
 
+const { Localizer } = await import(pathToFileURL(path.join(ROOT, "app/localizer.js")).href);
 for (const n of list.split(",").map(Number)) {
-  const patched = src.replace(/const ORB_FRAME_FEATURES = \d+;/, `const ORB_FRAME_FEATURES = ${n};`);
-  if (patched === src && n !== 800) throw new Error("no se encontró ORB_FRAME_FEATURES");
-  const { Localizer } = await import("data:text/javascript;base64," + Buffer.from(patched + `\n//${n}`).toString("base64"));
+  Localizer.configure({ frameFeatures: n });
   await Localizer.init(cv, ref, zones);
   console.log(`\n== ${n} puntos por fotograma ==`);
   for (const c of cases) {
@@ -54,4 +51,5 @@ for (const n of list.split(",").map(Number)) {
   }
   Localizer.dispose();
 }
+Localizer.configure();
 process.exit(0);

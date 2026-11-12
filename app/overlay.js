@@ -206,10 +206,12 @@ export const Overlay = (() => {
           const t = `DEBUG placa: homografía RECHAZADA (${inl} inliers < 10)`;
           ctx.font = "13px monospace";
           ctx.fillStyle = "rgba(0,0,0,0.7)";
-          ctx.fillRect(8, 40, ctx.measureText(t).width + 10, 18);
+          // Debajo de la barra de variantes (que ocupa la franja superior)
+          const ty = Math.round(_canvas.height * 0.2);
+          ctx.fillRect(8, ty, ctx.measureText(t).width + 10, 18);
           ctx.fillStyle = "#ff8080";
           ctx.textAlign = "left"; ctx.textBaseline = "top";
-          ctx.fillText(t, 13, 42);
+          ctx.fillText(t, 13, ty + 2);
         }
       }
       ctx.restore();

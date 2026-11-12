@@ -37,10 +37,16 @@ export const Localizer = (() => {
   let _zones = [];               // [{ id, name, polygon_px, bbox:{x,y,w,h}, patch: cv.Mat }]
 
   // ── Parámetros (hipótesis iniciales) ────────────────────────────────────────
-  const ORB_FEATURES      = 1500;  // referencia: cobertura de toda la placa
-  const ORB_FRAME_FEATURES = 800;  // fotograma: menos puntos = matching más rápido (medido)
+  // Detector y matching: configurables SOLO para comparar variantes en modo diagnóstico
+  // (configure() antes de init()). Los valores por defecto son los del modo normal.
+  const DEFAULT_CFG = Object.freeze({
+    detector: "orb",        // "orb" | "akaze"
+    refFeatures: 1500,      // ORB, referencia: cobertura de toda la placa
+    frameFeatures: 800,     // ORB, fotograma: menos puntos = matching más rápido (medido)
+    ratio: 0.75,            // ratio test de Lowe
+  });
+  let _cfg = { ...DEFAULT_CFG };
   const MIN_GOOD_MATCHES  = 12;
-  const RATIO_THRESH      = 0.75;
   const RANSAC_THRESH     = 5.0;
   const MIN_INLIERS       = 10;
   const INLIER_RATIO_MIN  = 0.20;
@@ -220,8 +226,13 @@ export const Localizer = (() => {
       gray = new cv.Mat();
       cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
 
-      _orb = new cv.ORB(ORB_FEATURES);
-      _orbFrame = new cv.ORB(ORB_FRAME_FEATURES);
+      if (_cfg.detector === "akaze") {
+        _orb = new cv.AKAZE();
+        _orbFrame = new cv.AKAZE();
+      } else {
+        _orb = new cv.ORB(_cfg.refFeatures);
+        _orbFrame = new cv.ORB(_cfg.frameFeatures);
+      }
       _refKeypoints = new cv.KeyPointVector();
       _refDescriptors = new cv.Mat();
       // Máscara de placa (opcional): solo se extraen puntos dentro del contorno de la
@@ -313,7 +324,7 @@ export const Localizer = (() => {
         try {
           if (pair.size() < 2) continue;
           const a = pair.get(0), b = pair.get(1);
-          if (a.distance < RATIO_THRESH * b.distance) good.push([a.queryIdx, a.trainIdx]);
+          if (a.distance < _cfg.ratio * b.distance) good.push([a.queryIdx, a.trainIdx]);
         } finally {
           pair.delete();
         }
@@ -400,6 +411,21 @@ export const Localizer = (() => {
   /** Modo diagnóstico: devuelve proyecciones rechazadas y parches. No cambia la decisión. */
   function setDebug(on) { _debug = !!on; }
 
+  /**
+   * Variante de detector/matching (solo para comparar en modo diagnóstico). Llamar ANTES
+   * de init(). Claves desconocidas se ignoran; sin argumentos vuelve a los valores por defecto.
+   */
+  function configure(cfg = {}) {
+    const next = { ...DEFAULT_CFG };
+    for (const k of Object.keys(DEFAULT_CFG)) if (cfg[k] !== undefined) next[k] = cfg[k];
+    if (!["orb", "akaze"].includes(next.detector)) next.detector = "orb";
+    next.refFeatures = Math.max(100, Math.min(5000, +next.refFeatures || DEFAULT_CFG.refFeatures));
+    next.frameFeatures = Math.max(100, Math.min(5000, +next.frameFeatures || DEFAULT_CFG.frameFeatures));
+    next.ratio = Math.max(0.5, Math.min(0.95, +next.ratio || DEFAULT_CFG.ratio));
+    _cfg = next;
+    return { ..._cfg };
+  }
+
   /** Parche de referencia de una zona (gris → RGBA), para comparar en modo diagnóstico. */
   function getRefPatch(id) {
     const z = _zones.find(z => z.id === id);
@@ -407,5 +433,6 @@ export const Localizer = (() => {
   }
 
   return { init, locate, dispose, isReady: () => _ready, getError: () => _error,
-           getRefInfo: () => _refInfo, setDebug, getRefPatch };
+           getRefInfo: () => _refInfo, setDebug, getRefPatch,
+           configure, getConfig: () => ({ ..._cfg }) };
 })();

@@ -18,6 +18,13 @@ describe("modo diagnóstico (?debug=1)", () => {
     assert.match(app, /const DEBUG = new URLSearchParams\(location\.search\)\.get\("debug"\) === "1"/);
   });
 
+  it("?var= solo tiene efecto en modo diagnóstico; por defecto ORB 800 sin cambios", () => {
+    assert.match(app, /const VARIANT_ID = DEBUG && VARIANTS\[/);
+    assert.match(app, /orb800:\s*\{ label: "ORB 800 \(actual\)",\s*cfg: \{\} \}/);
+    assert.match(app, /Localizer\.configure\(VARIANT\.cfg\);/);
+    assert.match(app, /if \(DEBUG\) showVariantBar\(\);/);
+  });
+
   it("tocar la línea DIAGNÓSTICO alterna el modo (recarga con o sin ?debug=1)", () => {
     assert.match(app, /diagLine\.addEventListener\("click"/);
     assert.match(app, /searchParams\.set\("debug", "1"\)/);

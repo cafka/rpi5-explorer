@@ -42,34 +42,26 @@ const out = {
 writeFileSync(outPath, JSON.stringify(out));
 console.log("replay OK");
 
-// Variantes sobre el MISMO cuadro (solo diagnóstico). Cada una carga una copia en memoria
-// del módulo con un cambio; app/localizer.js no se modifica.
-//   orbN     → N puntos ORB por fotograma
-//   ratioR   → umbral del ratio test (0,75 actual)
-//   akaze    → detector AKAZE en referencia y fotograma (descriptor binario, NORM_HAMMING)
-const VARIANTS = (featureList || "orb800,orb1500,orb2500,ratio0.8,ratio0.85,akaze").split(",");
-const src = readFileSync(path.join(ROOT, "app/localizer.js"), "utf8");
-function patch(v) {
-  let s = src;
-  const m = v.match(/^(orb|ratio)([\d.]+)$/);
-  if (m && m[1] === "orb")   s = s.replace(/const ORB_FRAME_FEATURES = \d+;/, `const ORB_FRAME_FEATURES = ${m[2]};`);
-  if (m && m[1] === "ratio") s = s.replace(/const RATIO_THRESH\s*=\s*[\d.]+;/, `const RATIO_THRESH = ${m[2]};`);
-  if (v === "akaze") s = s.replace("new cv.ORB(ORB_FEATURES)", "new cv.AKAZE()").replace("new cv.ORB(ORB_FRAME_FEATURES)", "new cv.AKAZE()");
-  if (s === src && v !== "orb800" && v !== "ratio0.75") throw new Error(`variante sin efecto: ${v}`);
-  return s;
-}
-const gpioRef = zones.zones[0].polygon_px;
+// Variantes sobre el MISMO cuadro (solo diagnóstico), con Localizer.configure() — las mismas
+// que ofrece la barra de variantes de la app en modo diagnóstico.
+const VARIANT_CFG = {
+  orb800: {}, orb1500: { frameFeatures: 1500 }, orb2500: { frameFeatures: 2500, refFeatures: 2500 },
+  ratio08: { ratio: 0.8 }, ratio085: { ratio: 0.85 },
+  akaze: { detector: "akaze" }, akaze08: { detector: "akaze", ratio: 0.8 },
+};
+const VARIANTS = (featureList || Object.keys(VARIANT_CFG).join(",")).split(",");
 for (const v of VARIANTS) {
-  const mod = await import("data:text/javascript;base64," + Buffer.from(patch(v) + `\n//${v}`).toString("base64"));
-  await mod.Localizer.init(cv, { width: RW, height: RH, data: new Uint8ClampedArray(ref) }, zones);
-  mod.Localizer.setDebug(true);
+  if (!VARIANT_CFG[v]) throw new Error(`variante desconocida: ${v}`);
+  Localizer.configure(VARIANT_CFG[v]);
+  await Localizer.init(cv, { width: RW, height: RH, data: new Uint8ClampedArray(ref) }, zones);
+  Localizer.setDebug(true);
   const t0 = performance.now();
-  const r = mod.Localizer.locate(frame);
+  const r = Localizer.locate(frame);
   const ms = Math.round(performance.now() - t0);
   const z = r.zones[0];
-  console.log(`variante ${v.padEnd(10)} found=${String(r.found).padEnd(5)} visible=${String(z.visible).padEnd(5)} ` +
+  console.log(`variante ${v.padEnd(9)} found=${String(r.found).padEnd(5)} visible=${String(z.visible).padEnd(5)} ` +
     `kp=${r.diagMetrics.frameKeypoints} matches=${r.diagMetrics.matchesUsed} inliers=${r.diagMetrics.inliers} ${ms}ms ` +
     `gpio=${JSON.stringify(z.polygon || z.polygonDebug || null)} tramos=${JSON.stringify((z.evidence || {}).nccSeg || (z.evidence || {}).reason || null)}`);
-  mod.Localizer.dispose();
 }
+Localizer.configure();
 process.exit(0);
