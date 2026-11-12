@@ -75,7 +75,9 @@ try {
     badge: document.getElementById('status-badge').textContent,
     resumeVisible: getComputedStyle(document.getElementById('btn-resume')).display !== 'none',
     freezeVisible: getComputedStyle(document.getElementById('btn-freeze')).display !== 'none',
-    overlayPainted: (() => { const c = document.getElementById('canvas-overlay'); const d = c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0; for (let i=3;i<d.length;i+=4) if (d[i]) n++; return n; })()
+    overlayPainted: (() => { const c = document.getElementById('canvas-overlay'); const d = c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0; for (let i=3;i<d.length;i+=4) if (d[i]) n++; return n; })(),
+    debugPanel: [...document.querySelectorAll('#viewer div')].map(d => d.textContent).filter(t => t.startsWith('DEBUG · ')),
+    debugCanvases: [...document.querySelectorAll('#viewer div canvas')].map(c => c.width + 'x' + c.height)
   })`);
   console.log("[congelado]", fr);
 

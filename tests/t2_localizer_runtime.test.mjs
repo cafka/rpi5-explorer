@@ -203,6 +203,31 @@ describe("localizer.js real + OpenCV.js 4.9.0 (simulado, escritorio)", () => {
     assert.equal(g.visible, false);
   });
 
+  it("Modo diagnóstico: la oclusión sigue rechazada, se informa polygonDebug y parche; sin debug no", () => {
+    const m = refMat();
+    const xs = gpioRef.map(p => p[0]), ys = gpioRef.map(p => p[1]);
+    cv.rectangle(m, new cv.Point(Math.min(...xs), Math.min(...ys)), new cv.Point(Math.max(...xs), Math.max(...ys)),
+                 new cv.Scalar(205, 160, 130, 255), -1);
+    const id = imageDataFromMat(m); m.delete();
+    Localizer.setDebug(true);
+    const d = Localizer.locate(id).zones.find(z => z.id === "gpio");
+    Localizer.setDebug(false);
+    const n = Localizer.locate(id).zones.find(z => z.id === "gpio");
+    assert.equal(d.visible, false);
+    assert.equal(d.polygon, null, "una zona rechazada nunca lleva polygon");
+    assert.ok(Array.isArray(d.polygonDebug) && d.polygonDebug.length === 4);
+    assert.ok(d.debugPatch && d.debugPatch.data.length === d.debugPatch.width * d.debugPatch.height * 4);
+    assert.equal(n.visible, false);
+    assert.equal(n.polygonDebug, undefined, "sin modo diagnóstico no se informa la proyección");
+    // Parche uniforme (sin contraste): se rechaza antes de calcular tramos → lowSeg vacío
+    assert.deepEqual(n.evidence.lowSeg, []);
+    // En un cuadro con la zona visible se informan los 3 tramos de ambas métricas
+    const v = Localizer.locate(warped([1, 0, 0, 0, 1, 0, 0, 0, 1])).zones.find(z => z.id === "gpio");
+    assert.equal(v.visible, true);
+    assert.equal(v.evidence.nccSeg.length, 3);
+    assert.equal(v.evidence.lowSeg.length, 3);
+  });
+
   it("Escena negativa uniforme (sin textura): found=false", () => {
     const W = 640, H = 480, data = new Uint8ClampedArray(W * H * 4).fill(128);
     const r = Localizer.locate({ width: W, height: H, data });
