@@ -354,6 +354,27 @@ Archivos (no versionados): `diagnosticos/analisis_D20261112T145556-ad64d9/` con
 hoja_variantes.png, recortes_akaze.png, oclusiones_sinteticas.png, periodicidad.json.
 Scripts versionados: `tools/analysis/gpio_session_analysis.mjs`, `tools/analysis/gpio_periodicity.py`.
 
+### Revisión del tercio 3: límites del recorte (12/11/2026, fuera de la app)
+Superposición del recorte (x 423–940, y 610–675 en la referencia) sobre la referencia y los 6
+cuadros, con zona ampliada rectificada por la homografía AKAZE:
+- El marcado contiene los 20 pines; ninguno queda fuera. El fondo blanco de la caja queda fuera
+  (por encima). La proyección coincide con el conector en f0, f1, f2, f4, f5.
+- f3: la base del conector termina ~15 px (ref) antes del borde → **desplazamiento local de la
+  proyección** en ese cuadro (no error del marcado).
+- Extremo derecho: entre x 928 (fin de la base) y 940 hay anillo/PCB **y la punta del pin 20**
+  (los pines se ven inclinados hacia la derecha; en la referencia es el final de su trazo).
+Prueba solo en análisis, borde derecho 940 → 928 (periodicidad v2, tercio 3):
+| caja | referencia | GPIO 6 cuadros | control HDMI/USB-C |
+| 423–940 (original) | −0,16 | 0,23–0,67 | 0,33–0,36 |
+| 423–928 (corregida) | 0,23 | 0,27–0,84 | 0,31–0,37 |
+**Corrección descartada**: la mejora proviene en parte de cortar la punta del pin 20.
+**Limitación**: con el recorte correcto, el tercio 3 no se distingue de forma fiable del control
+(se superponen). Hipótesis no verificadas: el perfil por columnas promedia pines inclinados;
+paralaje/reflejos. No se ajustaron umbrales sobre estos 6 cuadros.
+Archivos (no versionados): limites_referencia.png, limites_cuadros.png, prueba_borde_derecho.png,
+prueba_borde_derecho.json en `diagnosticos/analisis_D20261112T145556-ad64d9/`.
+Scripts: `tools/analysis/gpio_crop_bounds.py`, `tools/analysis/gpio_crop_test.py`.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
