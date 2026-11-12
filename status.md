@@ -299,6 +299,39 @@ Sesiones simuladas borradas de `diagnosticos/`.
 Pendiente: recorrido con el teléfono real de Claudia. Esto solo permite obtener evidencia;
 no resuelve la etiqueta GPIO.
 
+### Primera sesión real recibida y analizada (12/11/2026)
+Sesión `D20261112T145556-ad64d9` (11:55:57, sessionId S20261112T115545-32550c): Android 10,
+Chrome 154 Mobile, video 720x1280 → 640x1138, ref sha256 eebafe3cdc05, ORB 800, 6 cuadros, 10 MB.
+Medido en el teléfono durante la sesión: 5,8 loc/s, proceso p95 204 ms (ORB 800).
+Reproducción en la computadora: **idéntica** al teléfono en los 6 cuadros.
+
+Localización de la placa (revisada en imagen, no solo por cantidad de matches):
+| variante | placa aceptada | bien ubicada | GPIO aceptado |
+| ORB 800 (actual) | 2/6 | 2/2 | 0 |
+| ORB 2500 | 5/6 | 3/5 (f0, f3 deformadas) | 0 |
+| ratio 0,8 | 4/6 | f5 = ubicación FALSA; f1, f2 deformadas | 0 |
+| AKAZE | 6/6 | 6/6 (incluye f4 desenfocado) | 0 |
+Tiempo de locate() en la computadora: ORB 800 ≈ 100–130 ms; AKAZE ≈ 530–715 ms por cuadro.
+No es medición del teléfono; AKAZE probablemente quede < 3 loc/s allí (sin medir).
+
+GPIO: la proyección cae sobre el conector visible (coordenadas verificadas con un recorte
+independiente: diferencia media 3–5 niveles de gris). El criterio NCC falla en TODOS los cuadros
+bien ubicados (tramos −0,19…0,46): la referencia muestra los pines como trazos largos inclinados
+(vista oblicua, luz lateral) y el vivo solo las puntas brillantes, desplazadas medio paso
+(paralaje de pines de ~8 mm + reflejos). No es un problema de umbral ni de desplazamiento.
+
+Medición exploratoria de periodicidad (autocorrelación del perfil a lag ≈ 1 pin = 25,9 px):
+GPIO tercio central 0,62–0,77 · GPIO tapado 0,04–0,05 · franja HDMI/USB-C ≤ 0,35 · RAM/CPU ≤ 0,04.
+Tercios extremos poco confiables (tercio 1: 0,17–0,42; tercio 3: falla incluso en la referencia).
+Datos de UNA sesión (cuadros correlacionados): material de ajuste, no evaluación independiente.
+
+Propuesta (pendiente de aprobación; no implementada):
+1. Localizar con AKAZE y medir su velocidad en el teléfono; si no alcanza, probar AKAZE a menor
+   resolución u ORB 2500 con control de deformación.
+2. Reemplazar el NCC contra la foto por un criterio de regularidad de los 20 pines por tramo,
+   tras revisar el marcado de los extremos. Umbrales fijados con esta sesión y evaluación con
+   sesiones nuevas, oclusiones y escenas sin placa.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
