@@ -399,6 +399,31 @@ puede adoptar tal cual. Validación del GPIO pendiente.
 Archivos (no versionados): `diagnosticos/analisis_D20261112T160824-007982/` (hoja_variantes.png,
 limites_cuadros.png, recortes_akaze.png, variants.json, periodicidad.json).
 
+### Variante de diagnóstico AKAZE · 360 px (t2-diag-8, 12/11/2026) — NO adoptada
+- `?debug=1&var=akaze360` (o botón «AKAZE · 360 px»): AKAZE con los mismos parámetros y ancho de
+  procesamiento 360 px conservando proporción (720x1280 → 360x640, k = 2). Referencia sin cambios.
+  Modo normal sin cambios (ORB 800, 640 px; ignora ?var= sin ?debug=1; verificado).
+- La sesión exporta por cuadro `processedSize` y `canvasSize`, y `variant.procW`.
+Verificado: 146/146 pruebas (procSize 720x1280→360x640, k = 2; cadena procesado→canvas→pantalla;
+AKAZE localiza en un cuadro de 360x640 con error < 4 px). URL pública (Chrome simulado): variante
+procesa 360x360 con cámara 720x720; sesión exportada coherente (processedSize = PNG real =
+debug.proc = 360x360; kX = kY = 2) y reproducible. Sesiones simuladas borradas.
+Comparación sobre las 3 sesiones reales (18 cuadros; aproximación: reducción desde 640x1138, no
+desde el canvas del teléfono):
+| | 640 px | 360 px |
+| placa aceptada | 18/18 | 17/18 |
+| inliers | 16–57 | 8–20 |
+| GPIO coincide con el conector (visual, contra la vista de 640) | — | 9 bien · 4 desvío leve · 4 deterioro evidente (145556_f1, 145556_f3, 160824_f3, 160846_f4) |
+| locate() en computadora | 493–706 ms | 206–300 ms |
+Deterioro evidente de la ubicación a 360 px (pocos inliers → homografías torcidas en los extremos).
+Tiempos de computadora: no sustituyen la medición en el teléfono.
+Observado: en una carga de la URL pública justo tras publicar, la app mostró «No se pudo descargar
+vendor/opencv-4.9.0.js»; en la siguiente carga funcionó y el archivo publicado coincide por SHA-256.
+Probable ventana de republicación de GitHub Pages (no verificado).
+Archivos (no versionados): `diagnosticos/analisis_akaze360/` (comparacion_640_360.png,
+gpio_360_ampliado.png, gpio_640_vs_360.png, akaze_360.json, resumen_640_360.json).
+Pendiente: captura nueva en el teléfono con esta variante y movimiento lento (velocidad + ubicación).
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
