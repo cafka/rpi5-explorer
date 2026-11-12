@@ -8,3 +8,4 @@ referencia_original/
 
 # Diagnósticos guardados desde el teléfono y sus reproducciones (datos de prueba locales)
 diagnosticos/
+__pycache__/
