@@ -1,0 +1,40 @@
+{
+  "image": {
+    "file": "rpi5_ref.png",
+    "width": 800,
+    "height": 600,
+    "origin": "Esquema sintético generado por make_reference.py. Proporciones basadas en Raspberry Pi 5 Product Brief. Material de ajuste; no usar como conjunto de evaluación.",
+    "created": "2026-11-11"
+  },
+  "zones": [
+    {
+      "id": "gpio",
+      "name": "GPIO 40-pin header",
+      "description": "Conector de 2×20 pines en el borde superior izquierdo de la placa",
+      "polygon_px": [
+        [
+          62,
+          78
+        ],
+        [
+          474,
+          78
+        ],
+        [
+          474,
+          122
+        ],
+        [
+          62,
+          122
+        ]
+      ],
+      "label_offset_px": [
+        204,
+        56
+      ],
+      "source": "Raspberry Pi 5 Product Brief — raspberrypi.com/products/raspberry-pi-5/",
+      "consulted": "2026-11-11"
+    }
+  ]
+}
