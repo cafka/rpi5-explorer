@@ -170,13 +170,36 @@ export const Overlay = (() => {
   }
 
   /**
-   * SOLO MODO DIAGNÓSTICO (?debug=1). Dibuja, sin borrar lo anterior, las proyecciones
-   * de zonas RECHAZADAS: gris, punteado y rotulado «DEBUG», para que no se confunda con
-   * una etiqueta aceptada. No se llama en el modo normal.
+   * SOLO MODO DIAGNÓSTICO (?debug=1). Dibuja, sin borrar lo anterior:
+   *   - puntos inliers de la homografía (cuadraditos cian),
+   *   - contorno de la placa proyectado (cian, punteado largo),
+   *   - proyección de zonas RECHAZADAS (gris, punteado corto, rótulo «DEBUG … SIN evidencia»).
+   * Nada de esto es naranja ni sólido: no se confunde con una etiqueta aceptada.
+   * No se llama en el modo normal.
    */
   function drawDebug(result) {
     if (!_canvas || !result || !result.zones) return;
     const ctx = _ctx;
+    const d = result.debug;
+    if (d) {
+      // Puntos inliers (donde la placa coincide con la referencia): cian, pequeños
+      ctx.save();
+      ctx.fillStyle = "rgba(0,230,255,0.85)";
+      for (const [x, y] of d.inlierPts || []) ctx.fillRect(x - 2, y - 2, 4, 4);
+      // Contorno de la placa proyectado: cian, punteado largo
+      const b = d.board;
+      if (b && b.length >= 3) {
+        ctx.setLineDash([14, 8]);
+        ctx.strokeStyle = "rgba(0,230,255,0.9)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(b[0][0], b[0][1]);
+        for (let i = 1; i < b.length; i++) ctx.lineTo(b[i][0], b[i][1]);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     for (const z of result.zones) {
       const p = z.polygonDebug;
       if (z.visible || !p || p.length < 3) continue;

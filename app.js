@@ -18,8 +18,16 @@
 
 "use strict";
 
-import { Localizer } from "./localizer.js";
-import { Overlay }   from "./overlay.js";
+import { Localizer } from "./localizer.js?v=t2-diag-2";
+import { Overlay }   from "./overlay.js?v=t2-diag-2";
+import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-2";
+
+/**
+ * Versión de la app. Se muestra en la línea DIAGNÓSTICO y se usa como ?v= en las
+ * importaciones e index.html para que la caché de GitHub Pages (max-age=600) no sirva
+ * una mezcla de versiones. Debe coincidir en index.html y aquí (lo comprueba una prueba).
+ */
+const BUILD = "t2-diag-2";
 
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");
@@ -41,41 +49,123 @@ function withoutPatches(r) {
   return { ...r, zones: r.zones.map(({ debugPatch, ...z }) => z) };
 }
 
+/** Cadena de coordenadas medida ahora: referencia → procesado → canvas → pantalla. */
+function coordChain() {
+  const view = document.getElementById("viewer");
+  const cw = view.clientWidth, ch = view.clientHeight;
+  const cov = coverMapping(canvasLive.width || 1, canvasLive.height || 1, cw, ch);
+  const ref = window.referenceLoaded || {};
+  return {
+    reference: { file: ref.file, width: ref.width, height: ref.height, sha256: ref.sha256 },
+    processed: { width: _work.width, height: _work.height },
+    canvas:    { width: canvasLive.width, height: canvasLive.height },
+    kX: canvasLive.width / (_work.width || 1), kY: canvasLive.height / (_work.height || 1),
+    screen:    { cssWidth: cw, cssHeight: ch, devicePixelRatio: window.devicePixelRatio },
+    cover:     { scale: cov.scale, offsetX: cov.offsetX, offsetY: cov.offsetY, visibleCanvas: cov.visible },
+  };
+}
+
+const f2 = v => (Math.round(v * 1000) / 1000).toString();
+
 let _debugPanel = null;
-function showDebugPanel(result) {
+function showDebugPanel(result, raw) {
   hideDebugPanel();
   const g = result && result.zones && result.zones[0];
   const ref = Localizer.getRefPatch && Localizer.getRefPatch(g ? g.id : "gpio");
   _debugPanel = document.createElement("div");
+  _debugPanel.id = "debug-panel";
   _debugPanel.style.cssText = "position:absolute;left:6px;right:6px;top:44px;padding:6px;border-radius:6px;" +
-    "background:rgba(0,0,0,0.82);color:#dfe;font:11px/1.35 monospace;pointer-events:none;z-index:5";
-  const add = (label, img) => {
-    const t = document.createElement("div"); t.textContent = label; _debugPanel.appendChild(t);
-    if (!img) { const n = document.createElement("div"); n.textContent = "(sin parche)"; _debugPanel.appendChild(n); return; }
+    "background:rgba(0,0,0,0.85);color:#dfe;font:11px/1.35 monospace;pointer-events:none;z-index:5;" +
+    "max-height:70%;overflow:auto";
+  const line = t => { const d = document.createElement("div"); d.textContent = t; _debugPanel.appendChild(d); return d; };
+  const patch = (label, img, segValues) => {
+    line(label);
+    if (!img) { line("(sin recorte: la placa no se localizó o la zona cayó fuera de geometría)"); return; }
     const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
-    c.style.cssText = "width:100%;image-rendering:pixelated;border:1px solid #888;margin:2px 0 6px";
-    c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
+    c.style.cssText = "width:100%;image-rendering:pixelated;border:1px solid #888;margin:2px 0 2px";
+    const cx = c.getContext("2d");
+    cx.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
+    // Divisiones de tramo (las mismas que usa el cálculo: 3 tramos sobre el eje mayor)
+    const horiz = img.width >= img.height, L = horiz ? img.width : img.height, seg = Math.floor(L / 3);
+    cx.strokeStyle = "rgba(255,60,60,0.9)"; cx.lineWidth = 1;
+    for (let i = 1; i < 3; i++) {
+      cx.beginPath();
+      if (horiz) { cx.moveTo(i * seg + 0.5, 0); cx.lineTo(i * seg + 0.5, img.height); }
+      else       { cx.moveTo(0, i * seg + 0.5); cx.lineTo(img.width, i * seg + 0.5); }
+      cx.stroke();
+    }
     _debugPanel.appendChild(c);
+    if (segValues) line(segValues);
   };
-  add("DEBUG · parche GPIO de la REFERENCIA", ref);
-  add("DEBUG · parche GPIO de ESTE cuadro, rectificado con la homografía", g && g.debugPatch);
+
   const e = g && g.evidence;
-  const txt = document.createElement("div");
-  txt.textContent = !result || !result.found
-    ? "DEBUG · placa no localizada en este cuadro"
-    : e && e.nccSeg
-      ? `DEBUG · ${g.visible ? "ACEPTADA" : "RECHAZADA"} · ncc tramos [${e.nccSeg.join(", ")}] (umbral 0,5 c/u) · ` +
-        `baja frec. tramos [${e.lowSeg.join(", ")}] (candidata, no decide) · inliers ${result.diagMetrics.inliers}`
-      : `DEBUG · ${JSON.stringify(e)}`;
-  _debugPanel.appendChild(txt);
+  line(`DEBUG ${BUILD} · ${!result || !result.found ? "placa NO localizada en este cuadro"
+        : g.visible ? "GPIO ACEPTADA" : "GPIO RECHAZADA"} · inliers ${result ? result.diagMetrics.inliers : "-"}`);
+  patch("DEBUG · recorte GPIO de la REFERENCIA (lo que se espera ver)", ref, null);
+  patch("DEBUG · recorte GPIO de ESTE cuadro, rectificado con la homografía (lo que se compara)",
+        g && g.debugPatch,
+        e && e.nccSeg ? `ncc por tramo [${e.nccSeg.join(" | ")}] — umbral 0,5 en CADA tramo — ncc total ${e.ncc} · contraste ${e.std}` : null);
+  if (e && e.lowSeg) line(`baja frecuencia (1/4) por tramo [${e.lowSeg.join(" | ")}] — candidata, NO decide`);
+  if (e && e.reason) line(`motivo: ${e.reason}`);
+
+  const c = coordChain();
+  line(`coords: ref ${c.reference.width}x${c.reference.height} —H→ procesado ${c.processed.width}x${c.processed.height}` +
+       ` —×${f2(c.kX)}/${f2(c.kY)}→ canvas ${c.canvas.width}x${c.canvas.height}` +
+       ` —cover ×${f2(c.cover.scale)} (${Math.round(c.cover.offsetX)},${Math.round(c.cover.offsetY)})→` +
+       ` pantalla ${c.screen.cssWidth}x${c.screen.cssHeight} CSS px`);
+  line(`parte visible del canvas: x ${Math.round(c.cover.visibleCanvas.x)} y ${Math.round(c.cover.visibleCanvas.y)}` +
+       ` · ${Math.round(c.cover.visibleCanvas.w)}x${Math.round(c.cover.visibleCanvas.h)}`);
+  if (raw && raw.debug) line(`H (ref→procesado): [${raw.debug.H.map(v => f2(v)).join(", ")}]`);
+  const gp = raw && raw.zones && raw.zones[0];
+  const poly = gp && (gp.polygon || gp.polygonDebug);
+  if (poly) line(`GPIO proyectado en procesado: ${poly.map(p => `(${p[0]},${p[1]})`).join(" ")}`);
+
+  const btn = document.createElement("button");
+  btn.textContent = "Guardar diagnóstico (archivo local)";
+  btn.style.cssText = "pointer-events:auto;margin-top:6px;padding:8px 10px;border-radius:6px;border:1px solid #9cf;" +
+    "background:#123;color:#dfe;font:12px monospace";
+  btn.addEventListener("click", () => downloadDiagnostic());
+  _debugPanel.appendChild(btn);
+  line("Guarda el cuadro procesado y el resultado en Descargas. No se sube a ningún servidor.");
   document.getElementById("viewer").appendChild(_debugPanel);
 }
 function hideDebugPanel() { if (_debugPanel) { _debugPanel.remove(); _debugPanel = null; } }
+
+/**
+ * Diagnóstico exportable (solo modo debug, acción explícita). Contiene el cuadro EXACTO
+ * que procesó locate() (PNG del canvas de trabajo), el resultado sin reescalar y la cadena
+ * de coordenadas, para reproducir el cálculo en la computadora con tools/replay_diag.
+ */
+function buildDiagnostic() {
+  if (!_frozenRaw) return null;
+  const { zones, ...rest } = _frozenRaw;
+  return {
+    kind: "rpi5-explorer-diagnostico", build: BUILD, createdAt: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    chain: coordChain(),
+    result: { ...rest, zones: zones.map(({ debugPatch, ...z }) => z) },
+    processedFramePng: _work.toDataURL("image/png"),
+  };
+}
+window.buildDiagnostic = buildDiagnostic;
+
+function downloadDiagnostic() {
+  const d = buildDiagnostic();
+  if (!d) return;
+  const blob = new Blob([JSON.stringify(d)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `rpi5_diag_${d.createdAt.replace(/[:.]/g, "-")}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
 
 let _locReady   = false;
 let _locStatus  = "cargando OpenCV.js…";
 let _refLabel   = "";
 let _lastResult = null;
+let _lastRaw    = null;   // resultado de locate() en coordenadas del fotograma PROCESADO
+let _frozenRaw  = null;   // _lastRaw al congelar (para el diagnóstico exportable)
 let _frozen     = false;
 
 // Canvas de trabajo reutilizado para reducir el fotograma
@@ -129,7 +219,7 @@ function updateDiag(force = false) {
   const now = performance.now();
   if (!force && now - _lastDiagUpdate < 500) return;
   _lastDiagUpdate = now;
-  let text = `${DEBUG ? "MODO DEBUG · " : ""}DIAGNÓSTICO · localizador: ${_locStatus}`;
+  let text = `${DEBUG ? "MODO DEBUG · " : ""}DIAGNÓSTICO ${BUILD} · localizador: ${_locStatus}`;
   if (_locReady) {
     const s = getPerfStats();
     const r = _lastResult && _lastResult.diagMetrics;
@@ -159,19 +249,7 @@ function syncOverlaySize() {
   }
 }
 
-/** Reescala un resultado de coordenadas de trabajo a coordenadas del canvas. */
-function scaleResult(result, k) {
-  if (!result || k === 1) return result;
-  const sp = p => [Math.round(p[0] * k), Math.round(p[1] * k)];
-  return {
-    ...result,
-    zones: result.zones.map(z => ({
-      ...z,
-      polygon: z.polygon ? z.polygon.map(sp) : null,
-      labelPt: z.labelPt ? sp(z.labelPt) : null,
-    })),
-  };
-}
+// scaleResult (procesado → canvas) vive en coords.js; escala también lo de diagnóstico.
 
 // ── Hooks de cámara ───────────────────────────────────────────────────────────
 
@@ -187,12 +265,13 @@ function onFrame(canvas) {
   let result;
   try {
     // Reducir para localizar
-    const k  = W > PROC_MAX_W ? W / PROC_MAX_W : 1;
-    const pw = Math.round(W / k), ph = Math.round(H / k);
+    const { k, pw, ph } = procSize(W, H, PROC_MAX_W);
     if (_work.width !== pw || _work.height !== ph) { _work.width = pw; _work.height = ph; }
     _workCtx.drawImage(canvas, 0, 0, pw, ph);
     const imageData = _workCtx.getImageData(0, 0, pw, ph);
-    result = scaleResult(Localizer.locate(imageData), k);
+    const raw = Localizer.locate(imageData);
+    _lastRaw = DEBUG ? raw : null;
+    result = scaleResult(raw, k);
   } catch (e) {
     // Ante cualquier error se retira la etiqueta: no se reutiliza el resultado anterior
     console.warn("[app] onFrame:", e);
@@ -220,11 +299,18 @@ function onFreeze() {
   const frozen = withoutPatches(_lastResult && _lastResult.found ? _lastResult : null);
   Overlay.freezeResult(frozen);
   Overlay.drawFrozen();
-  if (DEBUG) { Overlay.drawDebug(frozen); showDebugPanel(_lastResult); }
+  if (DEBUG) {
+    _frozenRaw = _lastRaw;
+    // Lo de diagnóstico se dibuja con el resultado completo (incluye proyección rechazada)
+    Overlay.drawDebug(_lastResult);
+    showDebugPanel(_lastResult, _lastRaw);
+  }
 }
 
 function onResume() {
   hideDebugPanel();
+  _frozenRaw  = null;
+  _lastRaw    = null;
   _frozen     = false;
   _lastResult = null;
   _firstDone  = null;

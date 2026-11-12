@@ -196,7 +196,7 @@
   </div>
 
   <!-- Cámara (T1): funciona aunque OpenCV.js no cargue -->
-  <script src="camera.js"></script>
+  <script src="camera.js?v=t2-diag-2"></script>
 
   <!-- OpenCV.js 4.9.0 alojado en el proyecto (ver vendor/README.md).
        Se avisa en pantalla si falla la descarga. -->
@@ -210,6 +210,6 @@
   </script>
   <script async src="vendor/opencv-4.9.0.js"
           onerror="window._cvLoadError='No se pudo descargar vendor/opencv-4.9.0.js';window.dispatchEvent(new Event('opencv-error'));"></script>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=t2-diag-2"></script>
 </body>
 </html>
