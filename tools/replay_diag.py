@@ -63,9 +63,25 @@ def seg_lines(d, w, h, scale, color=(255, 50, 50)):
 def main():
     src = sys.argv[1]
     name = os.path.splitext(os.path.basename(src))[0]
+    data = json.load(open(src, encoding="utf-8"))
+    variants = sys.argv[2] if len(sys.argv) > 2 else None
+    if data.get("kind") == "rpi5-explorer-sesion":
+        # Sesión enviada por la app: varios cuadros con su resultado. Se reproduce cada uno.
+        print(f"SESIÓN {data.get('sessionId')} · build {data.get('build')} · {len(data['frames'])} cuadros · "
+              f"variante teléfono {json.dumps(data.get('variant'))}")
+        print(f"referencia teléfono: {data.get('reference')}")
+        for i, f in enumerate(data["frames"]):
+            print(f"\n──── cuadro {i} (t = {f.get('t')} ms) ────")
+            one = {"build": data.get("build"), "userAgent": data.get("userAgent"), "chain": data.get("chain"),
+                   "result": f["result"], "processedFramePng": f["processedFramePng"]}
+            replay_one(one, f"{name}_f{i}", variants)
+    else:
+        replay_one(data, name, variants)
+
+
+def replay_one(diag, name, variants):
     out_dir = os.path.join(ROOT, "diagnosticos")
     os.makedirs(out_dir, exist_ok=True)
-    diag = json.load(open(src, encoding="utf-8"))
 
     png = base64.b64decode(diag["processedFramePng"].split(",", 1)[1])
     frame = Image.open(io.BytesIO(png)).convert("RGBA")
@@ -75,8 +91,8 @@ def main():
 
     rep_path = os.path.join(out_dir, name + "_replay.json")
     cmd = ["node", os.path.join(ROOT, "tools", "replay_diag.mjs"), rgba_path, str(W), str(H), rep_path]
-    if len(sys.argv) > 2:          # variantes, p. ej. orb800,orb1500,akaze (por defecto: un juego estándar)
-        cmd.append(sys.argv[2])
+    if variants:                   # variantes, p. ej. orb800,orb1500,akaze (por defecto: un juego estándar)
+        cmd.append(variants)
     subprocess.run(cmd, check=True, cwd=ROOT)
     os.remove(rgba_path)
     rep = json.load(open(rep_path, encoding="utf-8"))

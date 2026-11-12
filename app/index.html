@@ -175,6 +175,16 @@
       <!-- Indicador de estado -->
       <div id="status-badge" class="live" aria-live="polite">EN VIVO</div>
 
+      <!-- Estado del diagnóstico enviado a la computadora (T2). Oculto hasta iniciarlo. -->
+      <div id="diag-status" role="status" aria-live="polite"
+           style="display:none;position:absolute;left:8px;right:8px;top:44px;z-index:7;padding:8px 10px;
+                  border-radius:8px;background:rgba(10,20,40,0.92);color:#eaeaea;font:13px/1.4 system-ui,sans-serif;">
+        <span id="diag-status-text"></span>
+        <button id="btn-diag-retry" type="button"
+                style="display:none;margin-top:6px;padding:8px 12px;border-radius:6px;border:1px solid #9cf;
+                       background:#123;color:#eaeaea;font:13px system-ui,sans-serif;">Reintentar envío</button>
+      </div>
+
       <!-- Pantalla de error / permiso denegado -->
       <div id="error-screen" role="alert" aria-live="assertive">
         <div id="error-icon">📷</div>
@@ -191,12 +201,17 @@
       <button id="btn-resume" class="ctrl-btn" style="display:none" aria-label="Volver a cámara en vivo">
         Volver a cámara
       </button>
+      <button id="btn-diag" type="button" class="ctrl-btn"
+              style="background:transparent;border-color:#9cf;color:#cfe6ff;padding:0 14px;font-size:0.85rem"
+              aria-label="Iniciar diagnóstico y enviarlo a la computadora">
+        Iniciar diagnóstico
+      </button>
     </div>
 
   </div>
 
   <!-- Cámara (T1): funciona aunque OpenCV.js no cargue -->
-  <script src="camera.js?v=t2-diag-5"></script>
+  <script src="camera.js?v=t2-diag-6"></script>
 
   <!-- OpenCV.js 4.9.0 alojado en el proyecto (ver vendor/README.md).
        Se avisa en pantalla si falla la descarga. -->
@@ -210,6 +225,6 @@
   </script>
   <script async src="vendor/opencv-4.9.0.js"
           onerror="window._cvLoadError='No se pudo descargar vendor/opencv-4.9.0.js';window.dispatchEvent(new Event('opencv-error'));"></script>
-  <script type="module" src="app.js?v=t2-diag-5"></script>
+  <script type="module" src="app.js?v=t2-diag-6"></script>
 </body>
 </html>

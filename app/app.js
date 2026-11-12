@@ -18,16 +18,17 @@
 
 "use strict";
 
-import { Localizer } from "./localizer.js?v=t2-diag-5";
-import { Overlay }   from "./overlay.js?v=t2-diag-5";
-import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-5";
+import { Localizer } from "./localizer.js?v=t2-diag-6";
+import { Overlay }   from "./overlay.js?v=t2-diag-6";
+import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-6";
+import { discoverReceiver, sendSession } from "./diag_session.js?v=t2-diag-6";
 
 /**
  * Versión de la app. Se muestra en la línea DIAGNÓSTICO y se usa como ?v= en las
  * importaciones e index.html para que la caché de GitHub Pages (max-age=600) no sirva
  * una mezcla de versiones. Debe coincidir en index.html y aquí (lo comprueba una prueba).
  */
-const BUILD = "t2-diag-5";
+const BUILD = "t2-diag-6";
 
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");
@@ -318,6 +319,7 @@ function onFrame(canvas) {
     const imageData = _workCtx.getImageData(0, 0, pw, ph);
     const raw = Localizer.locate(imageData);
     _lastRaw = DEBUG ? raw : null;
+    sessionCapture(raw);          // sesión de diagnóstico: guarda este mismo cuadro y su resultado
     result = scaleResult(raw, k);
   } catch (e) {
     // Ante cualquier error se retira la etiqueta: no se reutiliza el resultado anterior
@@ -343,6 +345,7 @@ function onFreeze() {
   // Las etiquetas congeladas son las del último fotograma procesado,
   // que es el mismo que queda fijo en el canvas (locate es síncrono por fotograma).
   _frozen = true;
+  cancelSession("se congeló la imagen antes de terminar");
   const frozen = withoutPatches(_lastResult && _lastResult.found ? _lastResult : null);
   Overlay.freezeResult(frozen);
   Overlay.drawFrozen();
@@ -492,6 +495,117 @@ async function loadReference(zones) {
   _locStatus = "activo";
   updateDiag(true);
 })();
+
+// ── Sesión de diagnóstico enviada a la computadora ────────────────────────────
+//
+// «Iniciar diagnóstico» graba SESSION_FRAMES cuadros procesados (los mismos que analizó
+// locate(), en PNG sin pérdida) con su resultado, y los envía al receptor de la computadora.
+// Éxito solo con recepción confirmada por SHA-256 (diag_session.js). Si falla, queda
+// pendiente en memoria y se puede reintentar. No cambia qué se etiqueta.
+
+const SESSION_FRAMES      = 6;
+const SESSION_INTERVAL_MS = 700;
+const btnDiag      = document.getElementById("btn-diag");
+const diagStatus   = document.getElementById("diag-status");
+const diagText     = document.getElementById("diag-status-text");
+const btnDiagRetry = document.getElementById("btn-diag-retry");
+
+let _session = null;   // { id, startedAt, nextAt, frames: [] } mientras se graba
+let _pending = null;   // { id, body, frames, bytes } listo para enviar o reintentar
+let _sending = false;
+
+function setDiagStatus(text, { retry = false } = {}) {
+  diagStatus.style.display = "";
+  diagText.textContent = text;
+  btnDiagRetry.style.display = retry ? "" : "none";
+}
+
+function newSessionId() {
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  const r = [...crypto.getRandomValues(new Uint8Array(3))].map(b => b.toString(16).padStart(2, "0")).join("");
+  return `S${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${r}`;
+}
+
+function startSession() {
+  if (_session || _sending) return;
+  if (_pending) { setDiagStatus("Hay un diagnóstico sin enviar. Reintentá el envío antes de grabar otro.", { retry: true }); return; }
+  if (_frozen) { setDiagStatus("Tocá «Volver a cámara» para iniciar el diagnóstico."); return; }
+  if (!_locReady) { setDiagStatus(`No se puede iniciar: localizador ${_locStatus}`); return; }
+  Localizer.setDebug(true);       // datos de diagnóstico en cada resultado (no cambia la decisión)
+  _session = { id: newSessionId(), startedAt: performance.now(), nextAt: 0, frames: [] };
+  btnDiag.disabled = true;
+  setDiagStatus(`Grabando diagnóstico 0/${SESSION_FRAMES}: mantené la Raspberry quieta en el cuadro. ` +
+                "Se enviarán los cuadros a tu computadora (túnel de Cloudflare); no se publican.");
+}
+
+function sessionCapture(raw) {
+  const s = _session;
+  if (!s) return;
+  const now = performance.now();
+  if (now < s.nextAt) return;
+  s.nextAt = now + SESSION_INTERVAL_MS;
+  const { zones, ...rest } = raw;
+  s.frames.push({
+    t: Math.round(now - s.startedAt),
+    processedFramePng: _work.toDataURL("image/png"),   // cuadro exacto que analizó locate()
+    result: { ...rest, zones: zones.map(({ debugPatch, ...z }) => z) },
+  });
+  setDiagStatus(`Grabando diagnóstico ${s.frames.length}/${SESSION_FRAMES}: mantené la Raspberry quieta en el cuadro.`);
+  if (s.frames.length >= SESSION_FRAMES) finishSession();
+}
+
+function cancelSession(reason) {
+  if (!_session) return;
+  _session = null;
+  Localizer.setDebug(DEBUG);
+  btnDiag.disabled = false;
+  setDiagStatus(`Diagnóstico cancelado: ${reason}. No se envió nada.`);
+}
+
+function finishSession() {
+  const s = _session;
+  _session = null;
+  Localizer.setDebug(DEBUG);
+  const payload = {
+    kind: "rpi5-explorer-sesion", sessionId: s.id, build: BUILD, createdAt: new Date().toISOString(),
+    userAgent: navigator.userAgent, variant: { id: VARIANT_ID, cfg: Localizer.getConfig() },
+    reference: window.referenceLoaded ? { file: window.referenceLoaded.file, sha256: window.referenceLoaded.sha256,
+      width: window.referenceLoaded.width, height: window.referenceLoaded.height } : null,
+    chain: coordChain(), perf: getPerfStats(), intervalMs: SESSION_INTERVAL_MS,
+    frames: s.frames,
+  };
+  const body = JSON.stringify(payload);
+  _pending = { id: s.id, body, frames: s.frames.length, bytes: body.length };
+  trySend();
+}
+
+async function trySend() {
+  if (!_pending || _sending) return;
+  _sending = true;
+  btnDiag.disabled = true;
+  const mb = (_pending.bytes / 1048576).toFixed(1);
+  try {
+    setDiagStatus(`Buscando el receptor de la computadora… (${_pending.frames} cuadros, ${mb} MB)`);
+    const url = await discoverReceiver();
+    setDiagStatus(`Enviando ${_pending.frames} cuadros (${mb} MB)…`);
+    const ack = await sendSession(url, _pending.body);
+    setDiagStatus(`✓ Recibido en la computadora. ID ${ack.id} · ${ack.frames} cuadros · ` +
+                  `verificado (SHA-256 ${ack.sha256.slice(0, 8)}).`);
+    window.lastDiagAck = ack;
+    _pending = null;
+  } catch (e) {
+    setDiagStatus(`Envío PENDIENTE: ${e.message}. El diagnóstico sigue guardado en esta página ` +
+                  "(no la recargues). Tocá «Reintentar envío».", { retry: true });
+  } finally {
+    _sending = false;
+    btnDiag.disabled = false;
+  }
+}
+
+btnDiag.addEventListener("click", startSession);
+btnDiagRetry.addEventListener("click", trySend);
+window.diagSessionState = () => ({ recording: !!_session, pending: !!_pending, sending: _sending,
+                                   text: diagText.textContent, ack: window.lastDiagAck || null });
 
 // Tocar la línea DIAGNÓSTICO activa o desactiva el modo diagnóstico (recarga con/sin ?debug=1).
 // Evita depender de escribir la URL a mano en el teléfono.
