@@ -271,6 +271,34 @@ dentro de la app). **No se implementa.** Se mantiene el enfoque actual (foto de 
 homografía). T2 sigue bloqueado: la placa no se localiza en el teléfono. Siguiente paso pendiente
 de definir con Claudia.
 
+### Diagnóstico enviado automáticamente (12/11/2026, t2-diag-7)
+Pedido de Claudia: dejar de descargar y copiar archivos. Implementado dentro de T2:
+- Botón «Iniciar diagnóstico»: graba 6 cuadros procesados (PNG, los mismos que analizó locate(),
+  cada 700 ms) con su resultado, variante, referencia y cadena de coordenadas; los envía solo.
+- Destino: receptor local `tools/diag_receiver.mjs` en esta computadora, publicado con un
+  **Cloudflare Quick Tunnel** (gratis, sin cuenta; límites según docs 30/09/2026: sin garantía de
+  disponibilidad, 200 pedidos simultáneos, URL cambia en cada encendido). La URL se anota en un
+  **gist secreto** (`2b597cf3…`) que la app lee por la API de GitHub; el gist contiene solo la URL.
+- Los datos quedan en `diagnosticos/` (excluida de Git). No se publican. El receptor no tiene
+  ninguna ruta de lectura; valida formato, ≤ 25 MB, ≤ 12 cuadros, ≤ 20 sesiones/hora; CORS solo
+  para la app. Cloudflare solo transporta (TLS hasta su borde).
+- Éxito solo si el receptor devuelve el MISMO SHA-256 de lo enviado; si no, «Envío PENDIENTE» con
+  «Reintentar envío» y los datos se conservan en la página.
+- `cloudflared` 2026.11.0 portátil en %LOCALAPPDATA%\rpi5-explorer\bin (SHA-256 verificado contra
+  la publicación oficial; sin instalación ni permisos de administrador). Un intento previo con
+  winget quedó esperando permiso de administrador y se abandonó.
+- Encender/apagar: `tools/start_receiver.ps1` / `tools/stop_receiver.ps1`.
+- `tools/replay_diag.py` reproduce sesiones de varios cuadros (y diagnósticos sueltos).
+Hallazgo corregido: la API de GitHub sirve el gist con `s-maxage=60` → el reintento leía la URL
+vieja; ahora cada consulta lleva un parámetro único (prueba incluida).
+Verificado: 140/140 pruebas (receptor real, envío real, hash distinto ≠ éxito, receptor apagado,
+gist sin URL, URL ajena). Recorrido en la URL pública con Chrome y cámara simulada: receptor
+apagado → PENDIENTE → encendido → «Reintentar envío» → «✓ Recibido · ID D20261112T144858-82cc3a»,
+mismo ID y SHA-256 en el registro del receptor; la sesión se reprodujo con resultados idénticos.
+Sesiones simuladas borradas de `diagnosticos/`.
+Pendiente: recorrido con el teléfono real de Claudia. Esto solo permite obtener evidencia;
+no resuelve la etiqueta GPIO.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
