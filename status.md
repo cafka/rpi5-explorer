@@ -206,6 +206,28 @@ Verificado:
 Pendiente: diagnóstico guardado desde el teléfono para distinguir desplazamiento / perspectiva /
 criterio. Las capturas que se usen para ajustar no servirán como evaluación independiente.
 
+### Quinta prueba en teléfono (12/11/2026) — sin etiqueta; modo diagnóstico NO activo
+Capturas con «DIAGNÓSTICO t2-diag-2» (versión correcta) pero sin «MODO DEBUG» → abiertas sin `?debug=1`.
+Datos: matches 19–25 · inliers 12–19 · ncc −0,19 / 0,08 / 0,07 (mín. tramo −0,31 / 0,02 / −0,04).
+Comparado con la prueba anterior (71 matches, 53 inliers, ncc 0,43): ncc ≈ 0 indica que se compara
+otra zona → hipótesis principal ahora: **homografía débil y GPIO desplazado** (no confirmado).
+
+Experimento simulado (`tools/sim_grid_experiment.*`, desarrollo): papel cuadriculado, cuadro
+640x1138, placa girada 90°, 50–95 % del ancho, 800 y 1500 puntos → 296–583 matches, GPIO a 1–3 px,
+aceptado en 16/16 casos. **Descarta** que la cuadrícula o la orientación expliquen el fallo.
+(Una primera corrida dio rechazos por un defecto de la simulación —máscara por brillo que
+transparentaba el header negro—; corregido y repetido.)
+Conclusión provisional: el código funciona cuando la imagen se parece a la referencia; en el
+teléfono las coincidencias reales son ~15 veces menos. La causa (iluminación, calidad de vista
+previa, ángulo, reflejos) requiere un cuadro real del teléfono.
+
+Cambios t2-diag-3: tocar la línea DIAGNÓSTICO activa/desactiva el modo (sin escribir la URL);
+el reproductor compara 800/1500/2500 puntos sobre el mismo cuadro real. Sin cambios de umbral
+ni de la regla de decisión. Verificado en URL pública (Chrome simulado): toque → `?debug=1` y
+«MODO DEBUG»; congelar → panel con recortes; export → reproducción idéntica. 111/111 pruebas.
+
+Pendiente: archivo de diagnóstico guardado desde el teléfono.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
