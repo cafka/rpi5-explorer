@@ -332,6 +332,28 @@ Propuesta (pendiente de aprobación; no implementada):
    tras revisar el marcado de los extremos. Umbrales fijados con esta sesión y evaluación con
    sesiones nuevas, oclusiones y escenas sin placa.
 
+### Comprobación: mezcla entre tramos en la periodicidad (12/11/2026, fuera de la app)
+Pregunta: ¿por qué tapar SOLO el tercio central bajaba también los extremos?
+Causa confirmada: la tendencia (promedio móvil de 2 pines) se restaba sobre todo el perfil; el
+escalón de la oclusión deformaba los bordes de los tramos vecinos y dominaba su normalización.
+Resultado (sesión D20261112T145556-ad64d9, 6 cuadros, recortes AKAZE; oclusiones SINTÉTICAS):
+| caso | v1 (tendencia global) | v2 (tendencia por tercio) |
+| GPIO sin tapar, tercio 1 | 0,17–0,42 | 0,56–0,80 |
+| GPIO sin tapar, tercio 2 | 0,60–0,77 | 0,62–0,76 |
+| GPIO sin tapar, tercio 3 | −0,03–0,40 | 0,25–0,71 |
+| tercio 2 tapado | baja los 3 tercios | baja solo el 2 (0,04–0,13) |
+| tercio 1 o 3 tapado | arrastra al tercio 2 | baja solo el tapado |
+| control HDMI/USB-C | ≤ 0,34 | ≤ 0,27 (t1–t2), 0,33–0,36 (t3) |
+| controles RAM / CPU | ≤ 0,05 | ≤ 0,09 |
+v3 (v2 + recorte ±3·MAD) no cambia la conclusión.
+Pendiente: el tercio 3 se superpone con el control (y da −0,16 en la referencia). Hipótesis no
+verificadas: pines más inclinados en ese extremo (el perfil por columnas promedia diagonales) y
+contenido ajeno al final del recorte (fondo/caja claros en f0, f2, f3). Paralaje y reflejos
+siguen siendo hipótesis.
+Archivos (no versionados): `diagnosticos/analisis_D20261112T145556-ad64d9/` con
+hoja_variantes.png, recortes_akaze.png, oclusiones_sinteticas.png, periodicidad.json.
+Scripts versionados: `tools/analysis/gpio_session_analysis.mjs`, `tools/analysis/gpio_periodicity.py`.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
