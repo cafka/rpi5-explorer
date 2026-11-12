@@ -265,6 +265,12 @@ teléfono (6–25 matches, 0–19 inliers). Si ninguna variante en vivo da ≥ 1
 propone cambiar de enfoque (referencia capturada con la propia cámara en vivo); requiere
 confirmación de Claudia antes de implementarlo.
 
+### Decisión de Claudia (12/11/2026)
+Respuesta «No» a la propuesta de cambiar de enfoque (referencia capturada con la cámara en vivo
+dentro de la app). **No se implementa.** Se mantiene el enfoque actual (foto de referencia +
+homografía). T2 sigue bloqueado: la placa no se localiza en el teléfono. Siguiente paso pendiente
+de definir con Claudia.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
