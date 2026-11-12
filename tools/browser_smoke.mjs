@@ -65,6 +65,33 @@ try {
     if (/ERROR/.test(last)) break;
   }
 
+  // Opcional: sesión de diagnóstico con el botón real. Si queda pendiente y RETRY_CMD está
+  // definido, se ejecuta ese comando (p. ej. encender el receptor) y se toca «Reintentar envío».
+  if (process.env.DIAG_SESSION) {
+    const state = () => evalJs(`JSON.stringify(window.diagSessionState ? window.diagSessionState() : null)`).then(s => JSON.parse(s || "null"));
+    const waitDone = async (secs) => {
+      let s = null;
+      for (let i = 0; i < secs; i++) {
+        await sleep(1000);
+        s = await state();
+        if (s && !s.recording && !s.sending && (s.ack || s.pending)) break;
+      }
+      return s;
+    };
+    await evalJs(`document.getElementById('btn-diag').click()`);
+    let s = await waitDone(180);
+    console.log("[sesión 1]", JSON.stringify({ pending: s && s.pending, ack: s && s.ack, text: s && s.text }));
+    console.log("[botón reintentar visible]", await evalJs(`getComputedStyle(document.getElementById('btn-diag-retry')).display !== 'none'`));
+    if (s && s.pending && process.env.RETRY_CMD) {
+      const { execSync } = await import("node:child_process");
+      console.log("[ejecutando]", process.env.RETRY_CMD);
+      console.log(execSync(process.env.RETRY_CMD, { encoding: "utf8" }).split("\n").filter(l => /OK|listo|Túnel|Error/i.test(l)).join(" | "));
+      await evalJs(`document.getElementById('btn-diag-retry').click()`);
+      s = await waitDone(180);
+      console.log("[reintento]", JSON.stringify({ pending: s && s.pending, ack: s && s.ack, text: s && s.text }));
+    }
+  }
+
   // Opcional: tocar el botón de una variante (por su texto) y esperar a que quede activa
   if (process.env.VARIANT_BTN) {
     await evalJs(`[...document.querySelectorAll('#variant-bar button')].find(b => b.textContent === ${JSON.stringify(process.env.VARIANT_BTN)}).click()`);

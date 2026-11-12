@@ -61,6 +61,9 @@ def seg_lines(d, w, h, scale, color=(255, 50, 50)):
 
 
 def main():
+    # La consola de Windows usa cp1252 por defecto y falla con «─», «·», etc.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     src = sys.argv[1]
     name = os.path.splitext(os.path.basename(src))[0]
     data = json.load(open(src, encoding="utf-8"))

@@ -33,7 +33,11 @@ async function fetchWithTimeout(url, opts = {}, ms = 15000) {
 export async function discoverReceiver(gistApi = RECEIVER_GIST_API) {
   let url;
   try {
-    const r = await fetchWithTimeout(gistApi, { cache: "no-store", headers: { Accept: "application/vnd.github+json" } });
+    // La API de GitHub responde con Cache-Control: public, max-age=60, s-maxage=60 (medido):
+    // sin un parámetro único se puede recibir la dirección anterior hasta 60 s.
+    const sep = gistApi.includes("?") ? "&" : "?";
+    const r = await fetchWithTimeout(`${gistApi}${sep}t=${Date.now()}`,
+      { cache: "no-store", headers: { Accept: "application/vnd.github+json" } });
     if (!r.ok) throw new Error(`GitHub respondió ${r.status}`);
     const g = await r.json();
     const f = g.files && g.files["receiver.json"];
@@ -41,7 +45,7 @@ export async function discoverReceiver(gistApi = RECEIVER_GIST_API) {
   } catch (e) {
     throw new Error(`no se pudo leer la dirección del receptor (${e.message})`);
   }
-  if (!url) throw new Error("el receptor de la computadora está apagado");
+  if (!url) throw new Error("el receptor de la computadora está apagado (si se acaba de encender, reintentá en unos segundos)");
   if (!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(url) && !/^http:\/\/127\.0\.0\.1:\d+$/.test(url)) {
     throw new Error("dirección de receptor no válida");
   }

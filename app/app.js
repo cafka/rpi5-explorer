@@ -18,17 +18,17 @@
 
 "use strict";
 
-import { Localizer } from "./localizer.js?v=t2-diag-6";
-import { Overlay }   from "./overlay.js?v=t2-diag-6";
-import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-6";
-import { discoverReceiver, sendSession } from "./diag_session.js?v=t2-diag-6";
+import { Localizer } from "./localizer.js?v=t2-diag-7";
+import { Overlay }   from "./overlay.js?v=t2-diag-7";
+import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-7";
+import { discoverReceiver, sendSession } from "./diag_session.js?v=t2-diag-7";
 
 /**
  * Versión de la app. Se muestra en la línea DIAGNÓSTICO y se usa como ?v= en las
  * importaciones e index.html para que la caché de GitHub Pages (max-age=600) no sirva
  * una mezcla de versiones. Debe coincidir en index.html y aquí (lo comprueba una prueba).
  */
-const BUILD = "t2-diag-6";
+const BUILD = "t2-diag-7";
 
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");

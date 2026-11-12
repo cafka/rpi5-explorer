@@ -68,6 +68,24 @@ describe("diag_session.js", () => {
     assert.equal(await discoverReceiver(gistUrl), recvUrl);
   });
 
+  it("discoverReceiver: cada consulta al gist lleva un parámetro único (evita la caché de 60 s)", async () => {
+    const seen = [];
+    const spy = createServer((req, res) => {
+      seen.push(req.url);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ files: { "receiver.json": { content: JSON.stringify({ url: recvUrl }) } } }));
+    });
+    const spyUrl = await listen(spy);
+    try {
+      await discoverReceiver(spyUrl + "/gists/x");
+      await new Promise(r => setTimeout(r, 5));
+      await discoverReceiver(spyUrl + "/gists/x");
+    } finally { spy.close(); }
+    assert.equal(seen.length, 2);
+    assert.match(seen[0], /\?t=\d+$/);
+    assert.notEqual(seen[0], seen[1]);
+  });
+
   it("discoverReceiver: gist sin URL → «apagado»", async () => {
     gistContent = JSON.stringify({ url: null, status: "detenido" });
     await assert.rejects(discoverReceiver(gistUrl), /apagado/);
