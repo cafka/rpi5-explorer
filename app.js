@@ -46,6 +46,7 @@ const _ages       = [];   // antigüedad (ms) de cada resultado presentado
 const AGE_SAMPLES = 100;
 
 function recordLocate(tDone, ageMs) {
+  if (_firstDone === null) _firstDone = tDone;
   _doneTimes.push(tDone);
   while (_doneTimes.length && tDone - _doneTimes[0] > WINDOW_MS) _doneTimes.shift();
   _ages.push(ageMs);
@@ -58,12 +59,18 @@ function p95(values) {
   return s[Math.min(s.length - 1, Math.ceil(s.length * 0.95) - 1)];
 }
 
+let _firstDone = null;   // primera localización desde el último inicio/reanudación
+
 function getPerfStats() {
   const now = performance.now();
   const recent = _doneTimes.filter(t => now - t <= WINDOW_MS);
+  // Ventana real: no subestimar durante los primeros segundos
+  const spanMs = _firstDone === null ? WINDOW_MS : Math.min(WINDOW_MS, Math.max(1000, now - _firstDone));
   return {
-    locPerSec: Math.round((recent.length / (WINDOW_MS / 1000)) * 10) / 10,
-    ageP95Ms:  Math.round(p95(_ages)),
+    locPerSec: Math.round((recent.length / (spanMs / 1000)) * 10) / 10,
+    // Tiempo desde que el fotograma quedó dibujado hasta su resultado dibujado.
+    // NO incluye latencia de captura de la cámara ni espera de rAF/pintado.
+    procP95Ms: Math.round(p95(_ages)),
     samples:   _ages.length,
     procSize:  `${_work.width}x${_work.height}`,
     videoSize: `${canvasLive.width}x${canvasLive.height}`,
@@ -82,7 +89,7 @@ function updateDiag(force = false) {
   if (_locReady) {
     const s = getPerfStats();
     const r = _lastResult && _lastResult.diagMetrics;
-    text += ` · ${s.locPerSec} loc/s · p95 ${s.ageP95Ms} ms · video ${s.videoSize} → ${s.procSize}`;
+    text += ` · ${s.locPerSec} loc/s · proceso p95 ${s.procP95Ms} ms · video ${s.videoSize} → ${s.procSize}`;
     if (r) text += ` · kp ${r.frameKeypoints ?? "?"} · matches ${r.matchesUsed} · inliers ${r.inliers}`;
     const g = _lastResult && _lastResult.zones && _lastResult.zones[0];
     if (g) {
@@ -130,14 +137,22 @@ function onFrame(canvas) {
   const tFrame = performance.now();
   syncOverlaySize();
 
-  // Reducir para localizar
-  const k  = W > PROC_MAX_W ? W / PROC_MAX_W : 1;
-  const pw = Math.round(W / k), ph = Math.round(H / k);
-  if (_work.width !== pw || _work.height !== ph) { _work.width = pw; _work.height = ph; }
-  _workCtx.drawImage(canvas, 0, 0, pw, ph);
-  const imageData = _workCtx.getImageData(0, 0, pw, ph);
-
-  const result = scaleResult(Localizer.locate(imageData), k);
+  let result;
+  try {
+    // Reducir para localizar
+    const k  = W > PROC_MAX_W ? W / PROC_MAX_W : 1;
+    const pw = Math.round(W / k), ph = Math.round(H / k);
+    if (_work.width !== pw || _work.height !== ph) { _work.width = pw; _work.height = ph; }
+    _workCtx.drawImage(canvas, 0, 0, pw, ph);
+    const imageData = _workCtx.getImageData(0, 0, pw, ph);
+    result = scaleResult(Localizer.locate(imageData), k);
+  } catch (e) {
+    // Ante cualquier error se retira la etiqueta: no se reutiliza el resultado anterior
+    console.warn("[app] onFrame:", e);
+    _lastResult = null;
+    Overlay.showSearching();
+    return;
+  }
   _lastResult  = result;
 
   // Solo se dibuja la zona si el localizador dio evidencia en ESTE fotograma
@@ -161,6 +176,9 @@ function onFreeze() {
 function onResume() {
   _frozen     = false;
   _lastResult = null;
+  _firstDone  = null;
+  _doneTimes.length = 0;
+  _ages.length = 0;
   Overlay.clear();
 }
 
@@ -265,3 +283,6 @@ function loadImage(url) {
 })();
 
 window.addEventListener("pagehide", () => { Localizer.dispose(); Overlay.clear(); });
+// Si el navegador restaura la página desde su caché (bfcache), el localizador ya
+// fue liberado: se recarga para empezar de cero con cámara y localizador nuevos.
+window.addEventListener("pageshow", ev => { if (ev.persisted) location.reload(); });

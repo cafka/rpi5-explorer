@@ -77,7 +77,7 @@ export const Localizer = (() => {
   }
 
   /** Plausibilidad geométrica del polígono proyectado (no degenerado, convexo, en cuadro). */
-  function isPolygonPlausible(poly, W, H, refArea) {
+  function isPolygonPlausible(poly, W, H) {
     if (!poly || poly.length < 3) return false;
     if (poly.some(([x, y]) => !Number.isFinite(x) || !Number.isFinite(y))) return false;
     const area = polygonArea(poly);
@@ -229,10 +229,14 @@ export const Localizer = (() => {
       _matcher.knnMatch(_refDescriptors, desc, knn, 2);
       const good = [];
       for (let i = 0; i < knn.size(); i++) {
-        const pair = knn.get(i);
-        if (pair.size() < 2) continue;
-        const a = pair.get(0), b = pair.get(1);
-        if (a.distance < RATIO_THRESH * b.distance) good.push([a.queryIdx, a.trainIdx]);
+        const pair = knn.get(i);           // objeto embind: se libera explícitamente
+        try {
+          if (pair.size() < 2) continue;
+          const a = pair.get(0), b = pair.get(1);
+          if (a.distance < RATIO_THRESH * b.distance) good.push([a.queryIdx, a.trainIdx]);
+        } finally {
+          pair.delete();
+        }
       }
       if (good.length < MIN_GOOD_MATCHES) return empty({ frameKeypoints: nKp, matchesUsed: good.length });
 
@@ -256,7 +260,7 @@ export const Localizer = (() => {
       const zones = _zones.map(z => {
         const poly = projectPolygon(cv, Hm, z.polygon_px);
         const none = { id: z.id, name: z.name, visible: false, polygon: null, labelPt: null };
-        if (!isPolygonPlausible(poly, W, H, z.refArea)) return { ...none, evidence: { reason: "geometría" } };
+        if (!isPolygonPlausible(poly, W, H)) return { ...none, evidence: { reason: "geometría" } };
 
         const zoneInliers = inl.filter(i => pointInPolygon(refPts[i][0], refPts[i][1], z.polygon_px)).length;
         const { ncc, std } = zoneSimilarity(cv, gray, h, z);
