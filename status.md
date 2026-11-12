@@ -2,8 +2,8 @@
 
 **Fecha**: 11 de noviembre de 2026
 **Versión del plan**: 1.1
-**Bloque actual**: T2 implementado — verificación en teléfono real pendiente
-**Último cambio**: T2 — localización GPIO ORB+RANSAC; revisión independiente aplicada
+**Bloque actual**: T2 corregido tras fallar en teléfono — verificado en escritorio/simulado; teléfono pendiente; falta referencia real
+**Último cambio**: T2 fix — OpenCV.js local, publicación verificada, evidencia de zona, métricas medidas
 **Nota**: este registro no se sincroniza automáticamente con Drive.
 
 ---
@@ -34,7 +34,15 @@
 | `app/data/zones.json`                                    | Creado en T2 — zona GPIO anotada                        |
 | `app/data/reference/rpi5_ref.png`                        | Creado en T2 — imagen de referencia sintética           |
 | `tools/make_reference.py`                                | Creado en T2 — generador de referencia                  |
-| `tests/t2_localizer_logic.test.mjs`                      | Creado en T2 — 34 pruebas de escritorio                 |
+| `tests/t2_localizer_logic.test.mjs`                      | Creado en T2 — 34 pruebas estáticas                     |
+| `tests/t2_localizer_runtime.test.mjs`                    | T2 fix — ejecuta localizer.js real con OpenCV.js (12)   |
+| `tests/t2_page_wiring.test.mjs`                          | T2 fix — cableado real de index.html (9)                |
+| `tests/fixtures/rpi5_ref_800x600.rgba`                   | T2 fix — referencia en píxeles crudos para Node         |
+| `app/vendor/opencv-4.9.0.js` + `README.md`               | T2 fix — OpenCV.js alojado, SHA-256, licencia           |
+| `tools/probe_opencv.cjs`                                 | T2 fix — verifica funciones de una compilación OpenCV.js |
+| `tools/browser_smoke.mjs`, `tools/make_y4m.py`           | T2 fix — prueba en Chrome con cámara simulada           |
+| `tools/export_rgba.py`                                   | T2 fix — imagen → RGBA para pruebas                     |
+| `tools/deploy_gh_pages.ps1`                              | T2 fix — publicación verificada de gh-pages             |
 | `data/`                                                  | No existe — se crea en T2/T4  |
 
 ---
@@ -59,52 +67,57 @@ Imagen sintética generada por `tools/make_reference.py` con proporciones aproxi
 
 Fuente de proporciones: Raspberry Pi 5 Product Brief — raspberrypi.com/products/raspberry-pi-5/ (consultado 11/11/2026).
 
+### Primera prueba en teléfono (11/11/2026) — FALLÓ
+Claudia: «No aparece ningún polígono». Causas encontradas (no era la calidad del reconocimiento):
+1. gh-pages servía el `index.html` y `camera.js` de T1: los archivos de T2 nunca se cargaron. La publicación no se verificó sobre lo publicado.
+2. El `index.html` de main había perdido `<script src="camera.js">`.
+3. OpenCV.js se pedía a `docs.opencv.org/4.10.0/opencv.js`, que da **404**.
+4. El objeto `cv` de OpenCV.js 4.9.0 tiene `.then`; pasarlo a `resolve()` dejaba la espera colgada para siempre.
+5. `let mat1/mat2` declarados dentro del `try` y usados en el `finally` → `ReferenceError` en cada fotograma: `locate()` nunca devolvía resultado.
+6. La evidencia por varianza del Laplacian aceptaba la zona tapada (verificado: fallaba la prueba de oclusión).
+Además: overlay sin el mismo `object-fit` que el video (desalineación), fuga de un `cv.Mat` por fotograma, ante error se mantenía la etiqueta, métrica fps estimada (1000/media) en lugar de medida.
+
+### Correcciones aplicadas
+- OpenCV.js **4.9.0 alojado** en `app/vendor/` (SHA-256 en `vendor/README.md`, Apache 2.0). Funciones verificadas ejecutándolas (`tools/probe_opencv.cjs`): ORB, AKAZE, BFMatcher, knnMatch, findHomography+RANSAC, perspectiveTransform, warpPerspective, matchTemplate. **SIFT ausente** en esta compilación.
+- Carga robusta con aviso en pantalla (línea DIAGNÓSTICO) si OpenCV o la referencia fallan.
+- Evidencia de zona nueva (ambas en el fotograma actual): ≥ 6 inliers RANSAC dentro del polígono GPIO **y** correlación normalizada ≥ 0,45 entre el parche rectificado y el de referencia. Umbrales = hipótesis iniciales.
+- Fotograma reducido a ≤ 640 px de ancho para localizar; resultado reescalado.
+- Métricas **medidas**: loc/s = locate() completados en la ventana; «proceso p95» = desde que el fotograma quedó dibujado hasta su resultado dibujado. No incluye latencia interna de la cámara.
+- Publicación con `tools/deploy_gh_pages.ps1`: copia exacta de `app/` y verificación de blobs idénticos (10/10).
+
 ### Técnica implementada
-ORB (1500 features) + BFMatcher (NORM_HAMMING) + ratio test Lowe (0.75) + findHomography RANSAC (umbral 5px, mínimo 10 inliers, ratio 20%). Validación local de visibilidad por varianza del Laplacian (proxy de textura/nitidez). Polígono proyectado con perspectiveTransform.
+ORB (1500) + BFMatcher NORM_HAMMING + ratio test 0,75 + findHomography RANSAC (5 px, ≥ 10 inliers, ≥ 20 %) + polígono plausible y convexo + evidencia de zona (inliers en zona + NCC).
 
-### Pruebas de escritorio (sin cámara, sin OpenCV real)
+### Pruebas (11/11/2026)
 
-| Suite | Pruebas | Resultado |
+**AUTOMÁTICAS — escritorio (Node 24.14.0)**: 85/85
+- Estáticas T1/T2: 73 (lógica, visibilidad de botones, estructura, cableado real de `index.html`).
+- **Ejecución real** de `app/localizer.js` + OpenCV.js 4.9.0: 12/12 — localiza GPIO en la referencia y en 3 transformaciones conocidas (error de esquinas < 12 px); rechaza oclusión negra, oclusión texturada, zona fuera de cuadro, ruido y escena uniforme; 100 llamadas sin excepción.
+
+**SIMULADAS — Chrome sin interfaz con cámara falsa (`tools/browser_smoke.mjs`)**, botones reales:
+| Escena | Local | URL pública |
 |---|---|---|
-| isPolygonPlausible | 7 | ✓ |
-| Centroide | 2 | ✓ |
-| zones.json estructura | 8 | ✓ |
-| Imagen de referencia | 2 | ✓ |
-| API de localizer.js | 9 | ✓ |
-| Hooks en camera.js | 6 | ✓ |
-| **Total T2** | **34/34** | ✓ |
-| Total acumulado (T1+T2) | 64/64 | ✓ |
+| Referencia sintética como cámara | GPIO ETIQUETADA (47 inliers en zona, ncc 0,90); congelar conserva la etiqueta; reanudar OK | igual |
+| Sin placa | sin etiqueta en ~100 localizaciones; overlay vacío al congelar | — |
+| Rendimiento (sin GPU, escritorio) | 2–5 loc/s, proceso p95 ≈ 360–490 ms | 4,9 loc/s, p95 360 ms |
 
-### Revisión independiente (subagente)
-Ejecutada. Sin problemas que bloqueen T2. Dos correcciones de gestión de memoria aplicadas (mat1/mat2 y mean/std en bloques finally). Riesgo a verificar: `new cv.ORB(n)` vs `cv.ORB_create(n)` según compilación — se confirma en teléfono.
+Las escenas simuladas usan la propia referencia: **no son evaluación independiente** y no dicen nada de la placa real.
 
-### Verificación en teléfono — PENDIENTE
+**TELÉFONO REAL**: pendiente (ver abajo).
 
-T2 no está aceptado hasta completar estas mediciones en el teléfono real:
+### Revisión independiente (subagente, 2 rondas)
+Ronda 2 (tras la corrección): sin defectos que bloqueen la prueba. Hallazgos aplicados: liberar `DMatchVector` por par (posible fuga), loc/s sin subestimar al inicio, métrica rotulada «proceso p95», retirar etiqueta ante error en `onFrame`, recarga al volver desde bfcache.
 
-**Pasos:**
-1. Abrir `https://cafka.github.io/rpi5-explorer/`
-2. Apuntar la cámara a la Raspberry Pi 5. Esperar ~2-3 segundos para que OpenCV.js cargue (progreso en consola del navegador).
-3. Verificar que aparece la etiqueta «GPIO 40-pin header» sobre el header cuando es visible.
-4. Tapar el header con la mano → etiqueta debe desaparecer en ≤ 0,5 s.
-5. Apuntar a una escena sin la placa → ninguna etiqueta.
-6. Congelar con placa visible → etiqueta debe corresponder al cuadro congelado.
-7. Reanudar → overlay limpio, relocaliza desde cero.
-8. En la consola del navegador: `window.getPerfStats()` → registrar fps y p95Ms.
-9. Registrar: modelo del teléfono, SO, versión del navegador, resolución.
+### Riesgos conocidos
+- **Referencia sintética**: casi seguro no coincide con la placa real → se necesita foto de la placa de Claudia (ver «Próxima acción»).
+- **Rendimiento**: en escritorio ~230 ms por localización; en el teléfono puede no alcanzar 3 loc/s. El cálculo corre en el hilo principal: el video se ve menos fluido que en T1.
 
-**Criterios de aceptación:**
-- Etiqueta correcta en ≥ 2 de 3 encuadres distintos.
-- Retirada en ≤ 0,5 s al tapar o sacar del encuadre.
-- Ninguna etiqueta en al menos 1 escena sin placa.
-- ≥ 3 localizaciones/segundo (getPerfStats().fps ≥ 3).
-- p95Ms ≤ 500 (getPerfStats().p95Ms ≤ 500).
-
-**Nota sobre la referencia**: la imagen de referencia actual es sintética. Si el localizador no encuentra la placa real de Claudia, es esperable: las texturas y keypoints pueden diferir de la placa real. En ese caso el siguiente paso es tomar una foto de la placa de Claudia y regenerar la referencia con `make_reference.py` adaptado, o anotar directamente sobre esa foto.
+### Verificación en teléfono — PENDIENTE (T2 no aceptado)
+Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
 ---
 
-## Verificaciones acumuladas
+## T1 — Cámara en vivo, congelado y reanudación (detalle)
 PWA (Progressive Web App). Decisión justificada en steering/proyecto-contexto.md.
 Repositorio: https://github.com/cafka/rpi5-explorer
 URL de acceso: **https://cafka.github.io/rpi5-explorer/**
@@ -211,8 +224,9 @@ Para desarrollo local sin teléfono: `node serve.js` → abrir http://localhost:
 - Modelo y sistema operativo del teléfono de Claudia.
 - Acceso a cámara trasera desde navegador móvil (getUserMedia).
 - HTTPS local accesible desde el teléfono (aplica si se confirma PWA).
-- Funciones disponibles en la compilación concreta de OpenCV.js.
+- Funciones de OpenCV.js 4.9.0: verificadas en escritorio (Node); en el navegador del teléfono, pendiente.
 - Rendimiento de localización en el teléfono real.
+- Localización sobre la placa real (requiere referencia real).
 - Condiciones vigentes de Cloudflare Tunnel gratuito (si se elige esa vía).
 
 ---
@@ -229,17 +243,20 @@ task1_probe.py pertenece al alcance reemplazado. Se conserva sin modificar.
 
 ## Fallos abiertos
 
-- T1: prueba de permiso denegado pendiente. No bloquea T2.
-- T2: verificación en teléfono real pendiente (ver pasos en sección T2).
-- Si la referencia sintética no produce matches con la placa real, necesito foto de la placa de Claudia.
-- Hallazgo 4 revisor: compatibilidad `new cv.ORB()` vs `cv.ORB_create()` — confirmar en teléfono.
+- T1: prueba de permiso denegado y recuperación pendiente. No bloquea T2.
+- T2: primera prueba en teléfono FALLÓ (causas de infraestructura, corregidas). Nueva prueba en teléfono pendiente.
+- T2: **falta referencia real** — foto de la placa de Claudia. Sin ella, la detección sobre la placa real casi seguro falla.
+- T2: rendimiento móvil sin medir; riesgo de < 3 loc/s.
+- `new cv.ORB()`: confirmado que funciona en 4.9.0 (escritorio); pendiente en el navegador del teléfono.
+- Wikimedia (foto CC BY 2.0 de SparkFun) devolvió HTTP 429; no se insistió.
 - Pendiente (hallazgo 5 T0): definir qué funciones estarán disponibles desde computadora. Retomar en T4–T5.
 
 ---
 
 ## Próxima acción
 
-**Verificar T2 en teléfono** con los pasos descritos en la sección T2.
-Si la referencia sintética no produce detección: pedir foto de la placa real de Claudia y regenerar.
-Si OpenCV.js falla en el teléfono (hallazgo 4): ajustar `new cv.ORB()` → `cv.ORB_create()`.
-Una vez verificados los criterios de T2, iniciar T3 con indicación expresa.
+1. **Claudia**: enviar una foto de su Raspberry Pi 5 (ver pedido en el chat).
+2. Kiro: anotar el GPIO sobre esa foto, regenerar `zones.json` y el fixture, repetir pruebas y publicar con `tools/deploy_gh_pages.ps1`.
+3. Claudia: medir T2 en el teléfono con la línea DIAGNÓSTICO.
+4. Si no alcanza 3 loc/s: corrección acotada (menos features ORB / menor resolución / Web Worker) y reevaluar.
+T3 solo con T2 aceptado e indicación expresa.

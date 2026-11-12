@@ -44,7 +44,10 @@ actualizado con correcciones v1.1.
 
 ---
 
-## T1 — Cámara en vivo, congelado y reanudación ⬜ PENDIENTE
+## T1 — Cámara en vivo, congelado y reanudación 🟨 VERIFICADO EN TELÉFONO (parcial)
+
+Estado 11/11/2026: ciclo cámara → congelar → volver a cámara verificado por Claudia en su
+teléfono. Pendiente: permiso denegado y recuperación. Ver status.md.
 
 **Resultado observable**: abrir la app desde el teléfono real, ver el video
 de la cámara trasera, congelar y reanudar. Sin localización ni etiquetas.
@@ -75,7 +78,12 @@ El uso normal no requiere cable USB.
 
 ---
 
-## T2 — Localización real de una zona en video y en teléfono ⬜ PENDIENTE
+## T2 — Localización real de una zona en video y en teléfono 🟧 IMPLEMENTADO — NO ACEPTADO
+
+Estado 11/11/2026: zona GPIO. Primera prueba en teléfono falló por publicación y carga
+(corregido). Verificado en escritorio y Chrome con cámara simulada. Pendiente: referencia
+real (foto de la placa de Claudia) y mediciones en teléfono. Ver status.md.
+Criterio adicional de requirements.md R5: proceso p95 ≤ 500 ms.
 
 **Resultado observable**: una zona (propuesta: GPIO o Ethernet, por tamaño
 y contraste) se etiqueta correctamente sobre la cámara en vivo. La etiqueta
