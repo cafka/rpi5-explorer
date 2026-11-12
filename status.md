@@ -375,6 +375,30 @@ Archivos (no versionados): limites_referencia.png, limites_cuadros.png, prueba_b
 prueba_borde_derecho.json en `diagnosticos/analisis_D20261112T145556-ad64d9/`.
 Scripts: `tools/analysis/gpio_crop_bounds.py`, `tools/analysis/gpio_crop_test.py`.
 
+### Sesión con AKAZE en el teléfono (12/11/2026)
+Recibidas dos sesiones nuevas:
+- `D20261112T160824-007982` (13:08:25) — **variante akaze** (registrada en la sesión). Android 10,
+  Chrome 154 Mobile, 720x1280 → 640x1138, ref eebafe3cdc05.
+- `D20261112T160846-4a59d3` (13:08:47) — variante **orb800** (no es la prueba pedida; solo tiempos).
+Tiempos medidos en el teléfono:
+| variante | locate() por cuadro | loc/s | proceso p95 |
+| AKAZE | 911–937 ms | 0,8 | 1003 ms |
+| ORB 800 | 146–150 ms | 5,6 | 222 ms |
+Objetivo del plan: ≥ 3 loc/s y p95 ≤ 500 ms → **AKAZE no lo cumple** en este teléfono.
+Ubicación AKAZE, cuadro por cuadro (reproducción idéntica al teléfono: mismos inliers, GPIO a 0 px):
+| sesión | homografía aceptada | proyección visualmente correcta |
+| 145556 (reproducción AKAZE) | 6/6 | 5/6 — f3 desplazada ~15 px (ref) en el extremo derecho |
+| 160824 (AKAZE en el teléfono) | 6/6 (51–56 inliers) | 6/6 — placa y GPIO coinciden en la ampliación |
+Los cuadros de cada sesión son casi el mismo encuadre: equivalen a ~2 puntos de vista, no a 12
+casos independientes. En la reproducción de 160824, ORB 800 y ORB 2500 dan contornos deformados
+en varios cuadros (f0, f1, f4).
+GPIO: con la proyección correcta, el NCC sigue fallando (tramos −0,14…0,14); los pines se ven
+como dos filas de puntos (vista casi cenital), distintos de los trazos de la referencia.
+Conclusión: AKAZE resuelve la **ubicación** en estas dos sesiones, pero **no la velocidad**; no se
+puede adoptar tal cual. Validación del GPIO pendiente.
+Archivos (no versionados): `diagnosticos/analisis_D20261112T160824-007982/` (hoja_variantes.png,
+limites_cuadros.png, recortes_akaze.png, variants.json, periodicidad.json).
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
