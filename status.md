@@ -2,8 +2,8 @@
 
 **Fecha**: 11 de noviembre de 2026
 **Versión del plan**: 1.1
-**Bloque actual**: T1 implementado — corrección de visibilidad publicada — verificación en teléfono pendiente
-**Último cambio**: T1 fix — btn-resume visible al congelar
+**Bloque actual**: T2 implementado — verificación en teléfono real pendiente
+**Último cambio**: T2 — localización GPIO ORB+RANSAC; revisión independiente aplicada
 **Nota**: este registro no se sincroniza automáticamente con Drive.
 
 ---
@@ -28,14 +28,83 @@
 | `.kiro/specs/rpi5-visual-explorer/tasks.md`              | Creado en T0, corregido a v1.1 |
 | `01_Reglas...v1.0.md` *(retirado)*                       | Borrado en T0; versión v1.1 en `Kiro_Correccion_T0_v1_1.md` |
 | `02_Planificación...v1.0.md` *(retirado)*                | Borrado en T0; versión v1.1 en `Kiro_Correccion_T0_v1_1.md` |
-| `app/localizer.js`                                       | No existe — se crea en T2     |
+| `app/localizer.js`                                       | Creado en T2 — ORB+RANSAC+homografía, OpenCV.js         |
+| `app/overlay.js`                                         | Creado en T2 — dibujo de etiquetas y polígonos          |
+| `app/app.js`                                             | Creado en T2 — coordinador cámara+localizer+overlay     |
+| `app/data/zones.json`                                    | Creado en T2 — zona GPIO anotada                        |
+| `app/data/reference/rpi5_ref.png`                        | Creado en T2 — imagen de referencia sintética           |
+| `tools/make_reference.py`                                | Creado en T2 — generador de referencia                  |
+| `tests/t2_localizer_logic.test.mjs`                      | Creado en T2 — 34 pruebas de escritorio                 |
 | `data/`                                                  | No existe — se crea en T2/T4  |
 
 ---
 
-## T1 — Cámara en vivo, congelado y reanudación (11/11/2026)
+## T1 — Verificación en teléfono (11/11/2026)
 
-### Plataforma adoptada
+**Verificado por Claudia**: ciclo completo funciona — cámara en vivo, congelar, volver a cámara.
+**Pendiente**: prueba de permiso denegado y recuperación. No bloquea T2.
+
+---
+
+## T2 — Localización GPIO con OpenCV.js (11/11/2026)
+
+### Plataforma y acceso
+PWA. URL: https://cafka.github.io/rpi5-explorer/
+
+### Zona elegida
+GPIO 40-pin header. Justificación: componente más grande de la placa, muy reconocible visualmente (2×20 pines dorados en franja rectangular), textura rica en keypoints ORB, sin cuerpo elevado significativo (menor paralaje que USB o Ethernet).
+
+### Referencia visual
+Imagen sintética generada por `tools/make_reference.py` con proporciones aproximadas a Raspberry Pi 5 real (85×56 mm, escala 8 px/mm). Es **material de ajuste**, no del conjunto de evaluación independiente. Para la prueba de viabilidad real se necesita foto de la placa de Claudia.
+
+Fuente de proporciones: Raspberry Pi 5 Product Brief — raspberrypi.com/products/raspberry-pi-5/ (consultado 11/11/2026).
+
+### Técnica implementada
+ORB (1500 features) + BFMatcher (NORM_HAMMING) + ratio test Lowe (0.75) + findHomography RANSAC (umbral 5px, mínimo 10 inliers, ratio 20%). Validación local de visibilidad por varianza del Laplacian (proxy de textura/nitidez). Polígono proyectado con perspectiveTransform.
+
+### Pruebas de escritorio (sin cámara, sin OpenCV real)
+
+| Suite | Pruebas | Resultado |
+|---|---|---|
+| isPolygonPlausible | 7 | ✓ |
+| Centroide | 2 | ✓ |
+| zones.json estructura | 8 | ✓ |
+| Imagen de referencia | 2 | ✓ |
+| API de localizer.js | 9 | ✓ |
+| Hooks en camera.js | 6 | ✓ |
+| **Total T2** | **34/34** | ✓ |
+| Total acumulado (T1+T2) | 64/64 | ✓ |
+
+### Revisión independiente (subagente)
+Ejecutada. Sin problemas que bloqueen T2. Dos correcciones de gestión de memoria aplicadas (mat1/mat2 y mean/std en bloques finally). Riesgo a verificar: `new cv.ORB(n)` vs `cv.ORB_create(n)` según compilación — se confirma en teléfono.
+
+### Verificación en teléfono — PENDIENTE
+
+T2 no está aceptado hasta completar estas mediciones en el teléfono real:
+
+**Pasos:**
+1. Abrir `https://cafka.github.io/rpi5-explorer/`
+2. Apuntar la cámara a la Raspberry Pi 5. Esperar ~2-3 segundos para que OpenCV.js cargue (progreso en consola del navegador).
+3. Verificar que aparece la etiqueta «GPIO 40-pin header» sobre el header cuando es visible.
+4. Tapar el header con la mano → etiqueta debe desaparecer en ≤ 0,5 s.
+5. Apuntar a una escena sin la placa → ninguna etiqueta.
+6. Congelar con placa visible → etiqueta debe corresponder al cuadro congelado.
+7. Reanudar → overlay limpio, relocaliza desde cero.
+8. En la consola del navegador: `window.getPerfStats()` → registrar fps y p95Ms.
+9. Registrar: modelo del teléfono, SO, versión del navegador, resolución.
+
+**Criterios de aceptación:**
+- Etiqueta correcta en ≥ 2 de 3 encuadres distintos.
+- Retirada en ≤ 0,5 s al tapar o sacar del encuadre.
+- Ninguna etiqueta en al menos 1 escena sin placa.
+- ≥ 3 localizaciones/segundo (getPerfStats().fps ≥ 3).
+- p95Ms ≤ 500 (getPerfStats().p95Ms ≤ 500).
+
+**Nota sobre la referencia**: la imagen de referencia actual es sintética. Si el localizador no encuentra la placa real de Claudia, es esperable: las texturas y keypoints pueden diferir de la placa real. En ese caso el siguiente paso es tomar una foto de la placa de Claudia y regenerar la referencia con `make_reference.py` adaptado, o anotar directamente sobre esa foto.
+
+---
+
+## Verificaciones acumuladas
 PWA (Progressive Web App). Decisión justificada en steering/proyecto-contexto.md.
 Repositorio: https://github.com/cafka/rpi5-explorer
 URL de acceso: **https://cafka.github.io/rpi5-explorer/**
@@ -160,20 +229,17 @@ task1_probe.py pertenece al alcance reemplazado. Se conserva sin modificar.
 
 ## Fallos abiertos
 
-- Verificación en teléfono real pendiente (ver pasos en sección T1).
-- Modelo y SO del teléfono de Claudia: no registrados todavía.
-- Pendiente: obtener o tomar una foto de referencia de la Raspberry Pi 5
-  propia de Claudia (necesaria para T2; no para T1).
-- Pendiente (hallazgo 5): definir qué funciones estarán disponibles desde
-  computadora. No bloquea T1; retomar al preparar T4–T5.
+- T1: prueba de permiso denegado pendiente. No bloquea T2.
+- T2: verificación en teléfono real pendiente (ver pasos en sección T2).
+- Si la referencia sintética no produce matches con la placa real, necesito foto de la placa de Claudia.
+- Hallazgo 4 revisor: compatibilidad `new cv.ORB()` vs `cv.ORB_create()` — confirmar en teléfono.
+- Pendiente (hallazgo 5 T0): definir qué funciones estarán disponibles desde computadora. Retomar en T4–T5.
 
 ---
 
 ## Próxima acción
 
-**T2 — Localización real de una zona** (requiere indicación expresa)
-
-Bloqueo hasta que se verifique T1 en teléfono real. Una vez verificado:
-- Preparar imagen de referencia de la Raspberry Pi 5 de Claudia.
-- Comprobar qué funciones expone la compilación de OpenCV.js disponible.
-- Iniciar el experimento de localización de una zona (ver tasks.md T2).
+**Verificar T2 en teléfono** con los pasos descritos en la sección T2.
+Si la referencia sintética no produce detección: pedir foto de la placa real de Claudia y regenerar.
+Si OpenCV.js falla en el teléfono (hallazgo 4): ajustar `new cv.ORB()` → `cv.ORB_create()`.
+Una vez verificados los criterios de T2, iniciar T3 con indicación expresa.
