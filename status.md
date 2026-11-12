@@ -156,6 +156,24 @@ son del mismo teléfono, y registrar sistema operativo y navegador.
   `ref: rpi5_claudia_ref.jpg 1024x768 sha256:eebafe3cdc05 · 1500 kp con máscara de placa · foto real`.
 - TELÉFONO: pendiente con la nueva referencia.
 
+### Tercera prueba en teléfono (12/11/2026) — sin etiqueta
+Dispositivo confirmado: **HONOR Magic6 Lite 5G · MagicOS 9 · Chrome**. Video 720x1280 → 640x1138.
+Captura (en vivo, referencia real cargada `sha256:eebafe3cdc05`): 6 loc/s · proceso p95 173 ms ·
+kp 800 · **matches 71 · inliers 53** (placa localizada) · GPIO sin evidencia:
+**ncc 0,43 · mín. tramo 0,33** (< 0,5) · inl zona 1.
+Conclusión: la homografía se acepta; el rechazo viene del criterio de parecido del parche.
+Rendimiento en el teléfono con la referencia real: 6 loc/s y p95 173 ms (cumple en esta escena).
+Hipótesis principal (no confirmada): **paralaje de los pines** (≈ 8 mm sobre el PCB; la homografía
+solo corrige el plano). En la referencia el header está lejos del centro óptico y los pines se ven
+inclinados; en vivo se ven casi de frente. Alternativa: desalineación de la proyección.
+No se bajó el umbral para que pase (sería ajustar sobre la evaluación).
+
+Acción: modo diagnóstico `?debug=1` publicado (no cambia la decisión): muestra la proyección
+rechazada (gris punteada, «DEBUG»), y al congelar los parches de referencia y del cuadro
+rectificado con NCC por tramo y una métrica candidata de baja frecuencia (1/4, solo informativa).
+Pruebas: 95/95 automáticas; Chrome (simulado) normal sin panel, debug con panel; URL pública verificada.
+Pendiente: captura de Claudia en modo diagnóstico para confirmar la causa antes de corregir.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
