@@ -228,6 +228,19 @@ ni de la regla de decisión. Verificado en URL pública (Chrome simulado): toque
 
 Pendiente: archivo de diagnóstico guardado desde el teléfono.
 
+### Sexta prueba en teléfono (12/11/2026) — modo diagnóstico ACTIVO, placa no localizada
+Capturas con «MODO DEBUG · t2-diag-3» (placa dentro de su caja, otra luz y orientación):
+matches 12 / inliers 6 y matches 6 / inliers 0 → **homografía rechazada** (mínimo 10 inliers).
+El cuadro congelado no contenía la placa (madera desenfocada): no hay diagnóstico guardado útil.
+Conclusión: el cuello de botella es la **localización de la placa** con la referencia única en
+condiciones distintas (luz, cámara en vivo vs foto, ángulo), no el criterio de parecido del GPIO.
+Corrección de presentación: el contorno de una homografía rechazada se dibujaba en cian como si
+fuera válido (línea diagonal en la captura 1); ahora es rojo y rotulado «RECHAZADA».
+t2-diag-4: el reproductor compara sobre el mismo cuadro ORB 800/1500/2500, ratio 0,8/0,85 y AKAZE
+(verificado sobre un cuadro simulado). 112/112 pruebas. URL pública verificada (Chrome simulado):
+debug positivo etiqueta; negativo sin etiqueta; modo normal sin elementos de diagnóstico.
+Pendiente: diagnóstico guardado desde el teléfono con la placa en el cuadro congelado.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
