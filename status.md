@@ -2,8 +2,8 @@
 
 **Fecha**: 11 de noviembre de 2026
 **Versión del plan**: 1.1
-**Bloque actual**: T1 implementado — verificación en teléfono real pendiente
-**Último cambio**: T1 — cámara en vivo, congelado y reanudación (PWA)
+**Bloque actual**: T1 implementado — corrección de visibilidad publicada — verificación en teléfono pendiente
+**Último cambio**: T1 fix — btn-resume visible al congelar
 **Nota**: este registro no se sincroniza automáticamente con Drive.
 
 ---
@@ -20,7 +20,8 @@
 | `app/index.html`                                         | Creado en T1 — shell PWA |
 | `app/camera.js`                                          | Creado en T1 — cámara, congelado, reanudación |
 | `app/manifest.json`                                      | Creado en T1 — manifest PWA |
-| `tests/t1_camera_logic.test.mjs`                         | Creado en T1 — pruebas de lógica (escritorio) |
+| `tests/t1_camera_logic.test.mjs`                         | Creado en T1 — pruebas de lógica de estado (escritorio) |
+| `tests/t1_ui_visibility.test.mjs`                        | Creado en T1 fix — pruebas de visibilidad sobre HTML y JS reales |
 | `.kiro/steering/proyecto-contexto.md`                    | Creado en T0, corregido a v1.1 |
 | `.kiro/specs/rpi5-visual-explorer/requirements.md`       | Creado en T0, corregido a v1.1 |
 | `.kiro/specs/rpi5-visual-explorer/design.md`             | Creado en T0, corregido a v1.1 |
@@ -66,7 +67,22 @@ URL de acceso: **https://cafka.github.io/rpi5-explorer/**
 | Mensajes de error: NotAllowedError, NotFoundError…  | ✓ (5 casos)|
 | Sintaxis camera.js (node --check)                   | ✓         |
 | Sintaxis serve.js (node --check)                    | ✓         |
-| **Total**                                           | **17/17** |
+| **Subtotal lógica**                                 | **17/17** |
+| #btn-resume sin display:none en CSS                 | ✓         |
+| #btn-resume con style="display:none" inline en HTML | ✓         |
+| #btn-freeze sin display:none inline en HTML         | ✓         |
+| setFrozenUI existe en camera.js                     | ✓         |
+| setFrozenUI asigna display explícito a btnResume    | ✓         |
+| setFrozenUI oculta btnFreeze                        | ✓         |
+| setLiveUI oculta btnResume con display:none         | ✓         |
+| setLiveUI no oculta btnFreeze                       | ✓         |
+| Ciclo freeze/resume: visibilidad inicial            | ✓         |
+| Ciclo freeze/resume: tras congelar                  | ✓         |
+| Ciclo freeze/resume: tras reanudar                  | ✓         |
+| Ciclo freeze/resume: múltiple (3 ciclos)            | ✓         |
+| Ciclo freeze/resume: error oculta Volver            | ✓         |
+| **Subtotal visibilidad**                            | **13/13** |
+| **TOTAL**                                           | **30/30** |
 
 **Categoría: TELÉFONO REAL — PENDIENTE**
 No verificado. No reemplazado por las pruebas de escritorio.
