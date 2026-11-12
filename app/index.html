@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a1a2e" />
+  <title>RPi5 Explorer</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    /* ── Reset y variables ──────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --clr-bg:        #1a1a2e;
+      --clr-surface:   #16213e;
+      --clr-accent:    #e94560;
+      --clr-text:      #eaeaea;
+      --clr-muted:     #8892a4;
+      --clr-overlay:   rgba(0,0,0,0.55);
+      --radius:        10px;
+      --btn-h:         52px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--clr-bg);
+      color: var(--clr-text);
+      font-family: system-ui, -apple-system, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Layout principal ───────────────────────────────────── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    /* ── Área del visor ─────────────────────────────────────── */
+    #viewer {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+    }
+
+    /* El canvas ocupa todo el visor; se escala por CSS */
+    #canvas-live {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* ── Indicador de estado (esquina superior izquierda) ───── */
+    #status-badge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      pointer-events: none;
+      transition: background 0.2s, color 0.2s;
+    }
+    #status-badge.live   { background: rgba(0,200,100,0.85); color: #000; }
+    #status-badge.frozen { background: rgba(233,69,96,0.90); color: #fff; }
+
+    /* ── Pantalla de error / permiso ────────────────────────── */
+    #error-screen {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: var(--clr-bg);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 32px;
+      text-align: center;
+    }
+    #error-screen.visible { display: flex; }
+    #error-icon  { font-size: 3rem; }
+    #error-title { font-size: 1.1rem; font-weight: 700; }
+    #error-msg   { color: var(--clr-muted); font-size: 0.9rem; line-height: 1.5; }
+    #btn-retry {
+      margin-top: 8px;
+      padding: 10px 24px;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--clr-accent);
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btn-retry:hover { opacity: 0.85; }
+
+    /* ── Barra de controles (parte inferior) ────────────────── */
+    #controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 14px 20px;
+      background: var(--clr-surface);
+      flex-shrink: 0;
+    }
+
+    .ctrl-btn {
+      height: var(--btn-h);
+      padding: 0 24px;
+      border: 2px solid transparent;
+      border-radius: var(--radius);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      /* Área táctil mínima recomendada */
+      min-width: 48px;
+    }
+    .ctrl-btn:active  { transform: scale(0.96); }
+    .ctrl-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #btn-freeze {
+      background: var(--clr-accent);
+      color: #fff;
+    }
+    #btn-freeze:hover:not(:disabled) { opacity: 0.85; }
+
+    #btn-resume {
+      background: transparent;
+      border-color: var(--clr-muted);
+      color: var(--clr-text);
+      /* display se controla únicamente desde camera.js mediante style.display */
+    }
+    #btn-resume:hover:not(:disabled) { border-color: var(--clr-text); }
+
+    /* Responsive mínimo: en pantallas muy anchas, limitar el visor */
+    @media (min-width: 768px) {
+      #app {
+        max-width: 480px;
+        margin: 0 auto;
+        height: 100%;
+        box-shadow: 0 0 40px rgba(0,0,0,0.5);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+
+    <div id="viewer">
+      <!-- El canvas muestra el video en vivo o el cuadro congelado -->
+      <canvas id="canvas-live" role="img" aria-label="Vista de cámara"></canvas>
+
+      <!-- Indicador de estado -->
+      <div id="status-badge" class="live" aria-live="polite">EN VIVO</div>
+
+      <!-- Pantalla de error / permiso denegado -->
+      <div id="error-screen" role="alert" aria-live="assertive">
+        <div id="error-icon">📷</div>
+        <div id="error-title">Cámara no disponible</div>
+        <div id="error-msg">Revisá los permisos e intentá de nuevo.</div>
+        <button id="btn-retry">Reintentar</button>
+      </div>
+    </div>
+
+    <div id="controls">
+      <button id="btn-freeze" class="ctrl-btn" aria-label="Congelar imagen">
+        Congelar imagen
+      </button>
+      <button id="btn-resume" class="ctrl-btn" style="display:none" aria-label="Volver a cámara en vivo">
+        Volver a cámara
+      </button>
+    </div>
+
+  </div>
+
+  <script src="camera.js"></script>
+</body>
+</html>

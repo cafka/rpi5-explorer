@@ -120,7 +120,7 @@ function setFrozenUI() {
   statusBadge.textContent = "CONGELADO";
   statusBadge.className   = "frozen";
   btnFreeze.style.display  = "none";
-  btnResume.style.display  = "";
+  btnResume.style.display  = "block";
   btnResume.disabled  = false;
 }
 
