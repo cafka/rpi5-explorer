@@ -18,16 +18,16 @@
 
 "use strict";
 
-import { Localizer } from "./localizer.js?v=t2-diag-3";
-import { Overlay }   from "./overlay.js?v=t2-diag-3";
-import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-3";
+import { Localizer } from "./localizer.js?v=t2-diag-4";
+import { Overlay }   from "./overlay.js?v=t2-diag-4";
+import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-4";
 
 /**
  * Versión de la app. Se muestra en la línea DIAGNÓSTICO y se usa como ?v= en las
  * importaciones e index.html para que la caché de GitHub Pages (max-age=600) no sirva
  * una mezcla de versiones. Debe coincidir en index.html y aquí (lo comprueba una prueba).
  */
-const BUILD = "t2-diag-3";
+const BUILD = "t2-diag-4";
 
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");
