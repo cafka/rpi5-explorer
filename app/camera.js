@@ -1,5 +1,7 @@
 /**
  * camera.js — T1: cámara en vivo, congelado y reanudación
+ * Actualizado en T2: expone window.cameraHooks para que app.js
+ * inyecte onFrame, onFreeze y onResume sin modificar este archivo.
  *
  * Responsabilidades de este archivo:
  *   - Solicitar acceso a la cámara trasera (getUserMedia).
@@ -8,6 +10,8 @@
  *   - Reanudar: descartar el cuadro congelado; reiniciar el loop.
  *   - Manejar permiso denegado y otros errores con mensajes claros.
  *   - Liberar el stream al congelar para conservar recursos (lo reobtiene al reanudar).
+ *   - Llamar a cameraHooks.onFrame(canvas) en cada fotograma.
+ *   - Llamar a cameraHooks.onFreeze() y cameraHooks.onResume() en los eventos correspondientes.
  *
  * Lo que NO hace este archivo (corresponde a T2):
  *   - Ninguna localización, homografía ni detección.
@@ -27,6 +31,19 @@ const errorMsg    = document.getElementById("error-msg");
 const btnRetry    = document.getElementById("btn-retry");
 const btnFreeze   = document.getElementById("btn-freeze");
 const btnResume   = document.getElementById("btn-resume");
+
+// ── Hooks para módulos externos (T2+) ────────────────────────────────────────
+
+/**
+ * Los módulos externos (app.js) pueden inyectar callbacks aquí.
+ * camera.js llama a estos hooks en los momentos correctos.
+ * No son requeridos; camera.js funciona sin ellos (T1 puro).
+ */
+window.cameraHooks = {
+  onFrame:  null,   // function(canvasElement) — llamado en cada fotograma
+  onFreeze: null,   // function() — llamado justo antes de congelar el overlay
+  onResume: null,   // function() — llamado al reanudar, antes de reiniciar la cámara
+};
 
 // ── Estado interno ────────────────────────────────────────────────────────────
 
@@ -199,6 +216,11 @@ function drawLoop() {
   syncCanvasSize(videoEl);
   ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
+  // Notificar al módulo de localización (T2+)
+  if (window.cameraHooks && window.cameraHooks.onFrame) {
+    try { window.cameraHooks.onFrame(canvas); } catch(e) { /* no interrumpir el loop */ }
+  }
+
   rafId = requestAnimationFrame(drawLoop);
 }
 
@@ -256,6 +278,11 @@ async function startCamera() {
 function freeze() {
   if (appState !== "live") return;
 
+  // Notificar al overlay ANTES de liberar el stream (el canvas aún tiene el cuadro)
+  if (window.cameraHooks && window.cameraHooks.onFreeze) {
+    try { window.cameraHooks.onFreeze(); } catch(e) {}
+  }
+
   // Capturar antes de liberar
   if (canvas.width > 0 && canvas.height > 0) {
     frozenFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -276,6 +303,11 @@ function freeze() {
  */
 async function resume() {
   if (appState !== "frozen") return;
+
+  // Notificar al overlay para limpiar resultados congelados
+  if (window.cameraHooks && window.cameraHooks.onResume) {
+    try { window.cameraHooks.onResume(); } catch(e) {}
+  }
 
   frozenFrame = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
