@@ -18,23 +18,23 @@
 
 "use strict";
 
-import { Localizer } from "./localizer.js?v=t2-diag-7";
-import { Overlay }   from "./overlay.js?v=t2-diag-7";
-import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-7";
-import { discoverReceiver, sendSession } from "./diag_session.js?v=t2-diag-7";
+import { Localizer } from "./localizer.js?v=t2-diag-8";
+import { Overlay }   from "./overlay.js?v=t2-diag-8";
+import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-8";
+import { discoverReceiver, sendSession } from "./diag_session.js?v=t2-diag-8";
 
 /**
  * Versión de la app. Se muestra en la línea DIAGNÓSTICO y se usa como ?v= en las
  * importaciones e index.html para que la caché de GitHub Pages (max-age=600) no sirva
  * una mezcla de versiones. Debe coincidir en index.html y aquí (lo comprueba una prueba).
  */
-const BUILD = "t2-diag-7";
+const BUILD = "t2-diag-8";
 
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");
 const diagLine      = document.getElementById("diag-line");
 
-/** Ancho máximo del fotograma usado para localizar (reduce costo de ORB). */
+/** Ancho máximo del fotograma usado para localizar (reduce costo de ORB). Modo normal. */
 const PROC_MAX_W = 640;
 
 /**
@@ -56,10 +56,15 @@ const VARIANTS = {
   ratio085: { label: "ORB 800 · ratio 0,85",   cfg: { ratio: 0.85 } },
   akaze:    { label: "AKAZE",                  cfg: { detector: "akaze" } },
   akaze08:  { label: "AKAZE · ratio 0,8",      cfg: { detector: "akaze", ratio: 0.8 } },
+  // procW: ancho de procesamiento propio de la variante (se mantiene la proporción del video).
+  // Solo diagnóstico; el modo normal usa PROC_MAX_W.
+  akaze360: { label: "AKAZE · 360 px",         cfg: { detector: "akaze" }, procW: 360 },
 };
 const VARIANT_ID = DEBUG && VARIANTS[new URLSearchParams(location.search).get("var")]
   ? new URLSearchParams(location.search).get("var") : "orb800";
 const VARIANT = VARIANTS[VARIANT_ID];
+/** Ancho de procesamiento efectivo: el de la variante de diagnóstico o el normal. */
+const PROC_W = VARIANT.procW || PROC_MAX_W;
 
 /** Barra de variantes (solo modo diagnóstico): elegir recarga la página con &var=… */
 function showVariantBar() {
@@ -313,7 +318,7 @@ function onFrame(canvas) {
   let result;
   try {
     // Reducir para localizar
-    const { k, pw, ph } = procSize(W, H, PROC_MAX_W);
+    const { k, pw, ph } = procSize(W, H, PROC_W);
     if (_work.width !== pw || _work.height !== ph) { _work.width = pw; _work.height = ph; }
     _workCtx.drawImage(canvas, 0, 0, pw, ph);
     const imageData = _workCtx.getImageData(0, 0, pw, ph);
@@ -547,6 +552,9 @@ function sessionCapture(raw) {
   const { zones, ...rest } = raw;
   s.frames.push({
     t: Math.round(now - s.startedAt),
+    // Dimensiones del cuadro realmente analizado y del canvas de la cámara en ese momento
+    processedSize: { width: _work.width, height: _work.height },
+    canvasSize: { width: canvasLive.width, height: canvasLive.height },
     processedFramePng: _work.toDataURL("image/png"),   // cuadro exacto que analizó locate()
     result: { ...rest, zones: zones.map(({ debugPatch, ...z }) => z) },
   });
@@ -568,7 +576,7 @@ function finishSession() {
   Localizer.setDebug(DEBUG);
   const payload = {
     kind: "rpi5-explorer-sesion", sessionId: s.id, build: BUILD, createdAt: new Date().toISOString(),
-    userAgent: navigator.userAgent, variant: { id: VARIANT_ID, cfg: Localizer.getConfig() },
+    userAgent: navigator.userAgent, variant: { id: VARIANT_ID, cfg: Localizer.getConfig(), procW: PROC_W },
     reference: window.referenceLoaded ? { file: window.referenceLoaded.file, sha256: window.referenceLoaded.sha256,
       width: window.referenceLoaded.width, height: window.referenceLoaded.height } : null,
     chain: coordChain(), perf: getPerfStats(), intervalMs: SESSION_INTERVAL_MS,
