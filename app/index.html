@@ -138,7 +138,7 @@
       background: transparent;
       border-color: var(--clr-muted);
       color: var(--clr-text);
-      display: none;
+      /* display se controla únicamente desde camera.js mediante style.display */
     }
     #btn-resume:hover:not(:disabled) { border-color: var(--clr-text); }
 
@@ -176,7 +176,7 @@
       <button id="btn-freeze" class="ctrl-btn" aria-label="Congelar imagen">
         Congelar imagen
       </button>
-      <button id="btn-resume" class="ctrl-btn" aria-label="Volver a cámara en vivo">
+      <button id="btn-resume" class="ctrl-btn" style="display:none" aria-label="Volver a cámara en vivo">
         Volver a cámara
       </button>
     </div>
