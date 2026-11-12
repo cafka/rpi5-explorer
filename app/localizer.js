@@ -1,484 +1,289 @@
 /**
- * localizer.js — T2: localización de zona GPIO con OpenCV.js
+ * localizer.js — T2: localización de una zona (GPIO) con OpenCV.js 4.9.0
  *
- * Implementa homografía ORB+BFMatcher+ratio-test+RANSAC sobre el fotograma
- * actual respecto de la imagen de referencia sintética.
+ * Pipeline por fotograma:
+ *   ORB → BFMatcher.knnMatch(k=2) → ratio test → findHomography(RANSAC)
+ *   → proyección del polígono de la zona → evidencia específica de la zona.
  *
- * API pública:
- *   Localizer.init(cvInstance, referenceImageElement, zonesJson) → Promise<void>
- *   Localizer.locate(imageData) → LocateResult
- *   Localizer.dispose()
+ * Evidencia de la zona (las dos condiciones deben cumplirse en ESTE fotograma):
+ *   1. zoneInliers ≥ MIN_ZONE_INLIERS: correspondencias inliers de RANSAC cuyo
+ *      keypoint de referencia cae dentro del polígono de la zona.
+ *   2. ncc ≥ MIN_ZONE_NCC: correlación normalizada (TM_CCOEFF_NORMED) entre el
+ *      parche de la zona en la referencia y el parche del fotograma rectificado
+ *      con la homografía, más un contraste mínimo del parche.
+ *   Localizar la placa no basta: si la zona está tapada, fuera de cuadro o no se
+ *   parece a la referencia, visible=false. Los umbrales son hipótesis iniciales;
+ *   se validan con capturas reales en el teléfono.
  *
- * LocateResult:
- *   {
- *     found:      boolean,          // si se encontró la placa con homografía válida
- *     zones: [{
- *       id:       string,
- *       name:     string,
- *       visible:  boolean,          // evidencia local confirma que la zona está visible
- *       polygon:  [[x,y], ...],     // polígono proyectado en coordenadas del fotograma
- *       labelPt:  [x, y],           // punto sugerido para la etiqueta
- *     }],
- *     diagMetrics: {
- *       inliers:        number,
- *       matchesUsed:    number,
- *       reprojError:    number|null,
- *       frameW:         number,
- *       frameH:         number,
- *       processingMs:   number,
- *     }
- *   }
+ * API:
+ *   Localizer.init(cv, refImage | ImageData, zonesJson) → Promise<void>
+ *   Localizer.locate(imageData) → { found, zones:[{id,name,visible,polygon,labelPt,evidence}], diagMetrics }
+ *   Localizer.dispose(), isReady(), getError()
  *
- * Notas de implementación:
- *   - findHomography con RANSAC en opencv.js requiere que los puntos se
- *     construyan como cv.matFromArray(n, 2, cv.CV_32F, flatArray).
- *   - Se verifica disponibilidad de ORB y findHomography en tiempo de init.
- *   - Si OpenCV no expone esas funciones, se registra el error y locate()
- *     devuelve found:false en lugar de lanzar una excepción.
- *   - La validación de visibilidad de zona comprueba gradiente local (Laplacian
- *     variance) en la región proyectada. Es una señal candidata; los umbrales
- *     se ajustan en T2 con evidencia real. No garantiza que el componente esté
- *     visible si está tapado por un objeto con textura similar.
+ * No hay posiciones fijas ni resultados simulados: found:true solo se devuelve
+ * tras una homografía aceptada en el fotograma recibido.
  */
 
 "use strict";
 
 export const Localizer = (() => {
 
-  // ── Estado interno ──────────────────────────────────────────────────────────
+  let _cv = null, _ready = false, _error = null;
+  let _refKeypoints = null, _refDescriptors = null, _orb = null, _matcher = null;
+  let _refW = 0, _refH = 0;
+  let _zones = [];               // [{ id, name, polygon_px, bbox:{x,y,w,h}, patch: cv.Mat }]
 
-  let _cv           = null;    // instancia de OpenCV.js
-  let _ready        = false;   // init completado con éxito
-  let _error        = null;    // mensaje de error si init falló
+  // ── Parámetros (hipótesis iniciales) ────────────────────────────────────────
+  const ORB_FEATURES      = 1500;
+  const MIN_GOOD_MATCHES  = 12;
+  const RATIO_THRESH      = 0.75;
+  const RANSAC_THRESH     = 5.0;
+  const MIN_INLIERS       = 10;
+  const INLIER_RATIO_MIN  = 0.20;
+  const MIN_ZONE_INLIERS  = 6;
+  const MIN_ZONE_NCC      = 0.45;
+  const MIN_PATCH_STD     = 8;
 
-  let _refDescriptors = null;  // cv.Mat descriptores de la referencia
-  let _refKeypoints   = null;  // cv.KeyPointVector keypoints de la referencia
-  let _orbDetector    = null;  // detector ORB
-  let _matcher        = null;  // BFMatcher
+  const REQUIRED = ["Mat", "ORB", "BFMatcher", "KeyPointVector", "DMatchVectorVector",
+    "findHomography", "perspectiveTransform", "matFromArray", "matFromImageData",
+    "cvtColor", "COLOR_RGBA2GRAY", "NORM_HAMMING", "RANSAC", "warpPerspective",
+    "WARP_INVERSE_MAP", "INTER_LINEAR", "BORDER_CONSTANT", "matchTemplate",
+    "TM_CCOEFF_NORMED", "meanStdDev", "Rect", "Size", "Scalar"];
 
-  let _refW = 0;               // dimensiones de la imagen de referencia
-  let _refH = 0;
+  const log  = m => console.log("[localizer]", m);
+  const warn = m => console.warn("[localizer]", m);
 
-  let _zones = [];             // zonas cargadas desde zones.json
-
-  // ── Parámetros de localización ──────────────────────────────────────────────
-
-  const ORB_FEATURES       = 1500;   // máximo de keypoints
-  const MIN_GOOD_MATCHES   = 12;     // mínimo para intentar homografía
-  const RATIO_THRESH       = 0.75;   // ratio test de Lowe
-  const RANSAC_THRESH      = 5.0;    // error de reproyección máximo (px)
-  const MIN_INLIERS        = 10;     // mínimo de inliers para aceptar
-  const INLIER_RATIO_MIN   = 0.20;   // fracción mínima de inliers/buenos matches
-  const VISIBILITY_LAP_MIN = 15;     // varianza mínima de Laplacian para considerar zona visible
-
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-
-  function log(msg) {
-    console.log("[localizer]", msg);
-  }
-
-  function warn(msg) {
-    console.warn("[localizer]", msg);
-  }
-
-  /**
-   * Verifica que las funciones necesarias estén disponibles en la compilación.
-   * Devuelve null si todo está bien, o un string describiendo lo que falta.
-   */
   function checkCapabilities(cv) {
-    const needed = ["ORB", "BFMatcher", "findHomography", "perspectiveTransform",
-                    "matFromArray", "NORM_HAMMING", "RANSAC", "cvtColor",
-                    "COLOR_RGBA2GRAY", "KeyPointVector", "DMatchVectorVector"];
-    const missing = needed.filter(fn => !(fn in cv));
-    return missing.length === 0 ? null : `Funciones no disponibles en esta compilación: ${missing.join(", ")}`;
+    const missing = REQUIRED.filter(n => !(n in cv));
+    return missing.length ? `Funciones no disponibles en esta compilación: ${missing.join(", ")}` : null;
   }
 
-  /**
-   * Aplica ratio test de Lowe y devuelve los buenos matches.
-   * @param {cv.DMatchVectorVector} knnMatches
-   * @returns {Array<{queryIdx, trainIdx}>}
-   */
-  function ratioTest(knnMatches) {
-    const good = [];
-    for (let i = 0; i < knnMatches.size(); i++) {
-      const pair = knnMatches.get(i);
-      if (pair.size() < 2) continue;
-      const m = pair.get(0);
-      const n = pair.get(1);
-      if (m.distance < RATIO_THRESH * n.distance) {
-        good.push({ queryIdx: m.queryIdx, trainIdx: m.trainIdx });
-      }
+  function pointInPolygon(x, y, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
     }
-    return good;
+    return inside;
   }
 
-  /**
-   * Construye un cv.Mat de puntos 2D desde un array de {x,y} usando
-   * la firma que funciona con findHomography en opencv.js:
-   *   cv.matFromArray(nPoints, 2, cv.CV_32F, flatArray)
-   */
-  function buildPointsMat(cv, points) {
-    const flat = [];
-    for (const p of points) {
-      flat.push(p.x, p.y);
+  function polygonArea(poly) {
+    let a = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+      a += x1 * y2 - x2 * y1;
     }
-    return cv.matFromArray(points.length, 2, cv.CV_32F, flat);
+    return Math.abs(a) / 2;
   }
 
-  /**
-   * Proyecta los vértices de un polígono mediante la homografía H.
-   * @param {cv.Mat} H  — 3×3
-   * @param {Array<[x,y]>} polygon  — polígono en coordenadas de la referencia
-   * @returns {Array<[x,y]>}
-   */
-  function projectPolygon(cv, H, polygon) {
-    // Construir matriz de puntos de entrada
-    const flat = polygon.flatMap(([x, y]) => [x, y]);
-    const srcPts = cv.matFromArray(polygon.length, 1, cv.CV_32FC2, flat);
-    const dstPts = new cv.Mat();
+  /** Plausibilidad geométrica del polígono proyectado (no degenerado, convexo, en cuadro). */
+  function isPolygonPlausible(poly, W, H, refArea) {
+    if (!poly || poly.length < 3) return false;
+    if (poly.some(([x, y]) => !Number.isFinite(x) || !Number.isFinite(y))) return false;
+    const area = polygonArea(poly);
+    if (area < W * H * 0.001 || area > W * H * 0.9) return false;
+    // Convexidad: todos los productos cruzados con el mismo signo
+    let sign = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i], [bx, by] = poly[(i + 1) % poly.length], [cx, cy] = poly[(i + 2) % poly.length];
+      const cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
+      if (cross !== 0) { if (sign === 0) sign = Math.sign(cross); else if (Math.sign(cross) !== sign) return false; }
+    }
+    // Al menos el 60 % del área de la zona dentro del cuadro (aprox. por vértices)
+    const inside = poly.filter(([x, y]) => x >= 0 && x < W && y >= 0 && y < H).length;
+    return inside >= Math.ceil(poly.length * 0.6);
+  }
+
+  function projectPolygon(cv, Hm, poly) {
+    const src = cv.matFromArray(poly.length, 1, cv.CV_32FC2, poly.flat());
+    const dst = new cv.Mat();
     try {
-      cv.perspectiveTransform(srcPts, dstPts, H);
-      const result = [];
-      for (let i = 0; i < polygon.length; i++) {
-        result.push([
-          Math.round(dstPts.floatAt(i, 0)),
-          Math.round(dstPts.floatAt(i, 1)),
-        ]);
-      }
-      return result;
-    } finally {
-      srcPts.delete();
-      dstPts.delete();
-    }
+      cv.perspectiveTransform(src, dst, Hm);
+      const out = [];
+      for (let i = 0; i < poly.length; i++) out.push([dst.data32F[i * 2], dst.data32F[i * 2 + 1]]);
+      return out;
+    } finally { src.delete(); dst.delete(); }
   }
 
   /**
-   * Comprueba si un polígono proyectado está razonablemente dentro del frame
-   * y tiene área plausible (no degenerado).
+   * Rectifica la zona del fotograma a la geometría de la referencia y la compara
+   * con el parche de referencia. Devuelve { ncc, std }.
+   * M = H · T(bx,by): mapea coordenadas del parche → fotograma (WARP_INVERSE_MAP).
    */
-  function isPolygonPlausible(polygon, frameW, frameH) {
-    if (!polygon || polygon.length < 3) return false;
-
-    // Calcular área con fórmula del shoelace
-    let area = 0;
-    const n = polygon.length;
-    for (let i = 0; i < n; i++) {
-      const [x1, y1] = polygon[i];
-      const [x2, y2] = polygon[(i + 1) % n];
-      area += x1 * y2 - x2 * y1;
-    }
-    area = Math.abs(area) / 2;
-
-    const minArea = (frameW * frameH) * 0.001;  // al menos 0.1% del frame
-    const maxArea = (frameW * frameH) * 0.9;    // no más del 90%
-    if (area < minArea || area > maxArea) return false;
-
-    // Al menos un vértice dentro del frame
-    const margin = -50;
-    const inFrame = polygon.some(([x, y]) =>
-      x > margin && x < frameW - margin &&
-      y > margin && y < frameH - margin
-    );
-    return inFrame;
+  function zoneSimilarity(cv, frameGray, h, zone) {
+    const { x: bx, y: by, w, h: hh } = zone.bbox;
+    const M = cv.matFromArray(3, 3, cv.CV_64F, [
+      h[0], h[1], h[0] * bx + h[1] * by + h[2],
+      h[3], h[4], h[3] * bx + h[4] * by + h[5],
+      h[6], h[7], h[6] * bx + h[7] * by + h[8],
+    ]);
+    const warped = new cv.Mat(), res = new cv.Mat(), mean = new cv.Mat(), std = new cv.Mat();
+    try {
+      cv.warpPerspective(frameGray, warped, M, new cv.Size(w, hh),
+        cv.INTER_LINEAR | cv.WARP_INVERSE_MAP, cv.BORDER_CONSTANT, new cv.Scalar(0));
+      cv.meanStdDev(warped, mean, std);
+      const s = std.data64F[0];
+      if (s < MIN_PATCH_STD) return { ncc: 0, std: s };
+      cv.matchTemplate(warped, zone.patch, res, cv.TM_CCOEFF_NORMED);
+      const ncc = res.data32F[0];
+      return { ncc: Number.isFinite(ncc) ? ncc : 0, std: s };
+    } finally { M.delete(); warped.delete(); res.delete(); mean.delete(); std.delete(); }
   }
 
-  /**
-   * Valida evidencia visual local en la región proyectada.
-   * Calcula la varianza del Laplacian (proxy de nitidez/textura).
-   * Una zona tapada o borrosa tendrá varianza muy baja.
-   *
-   * Esta es una señal candidata, no una prueba definitiva.
-   * Se ajusta con evidencia real en T2.
-   *
-   * @param {cv.Mat} grayFrame  — frame en escala de grises
-   * @param {Array<[x,y]>} polygon  — polígono proyectado en coords del frame
-   * @returns {boolean}
-   */
-  function checkLocalEvidence(cv, grayFrame, polygon) {
-    if (!polygon || polygon.length < 3) return false;
-
-    // Bounding box del polígono, recortada al frame
-    const xs = polygon.map(p => p[0]);
-    const ys = polygon.map(p => p[1]);
-    let x0 = Math.max(0, Math.min(...xs));
-    let y0 = Math.max(0, Math.min(...ys));
-    let x1 = Math.min(grayFrame.cols - 1, Math.max(...xs));
-    let y1 = Math.min(grayFrame.rows - 1, Math.max(...ys));
-
-    if (x1 - x0 < 5 || y1 - y0 < 5) return false;
-
-    let lap = null;
-    let roi = null;
-    try {
-      const rect = new cv.Rect(x0, y0, x1 - x0, y1 - y0);
-      roi = grayFrame.roi(rect);
-      lap = new cv.Mat();
-      cv.Laplacian(roi, lap, cv.CV_64F);
-
-      // Varianza del Laplacian = medida de nitidez/textura
-      let mean = null;
-      let std  = null;
-      try {
-        mean = new cv.Mat();
-        std  = new cv.Mat();
-        cv.meanStdDev(lap, mean, std);
-        const stdVal  = std.doubleAt(0, 0);
-        const variance = stdVal * stdVal;
-        return variance > VISIBILITY_LAP_MIN;
-      } finally {
-        if (mean) mean.delete();
-        if (std)  std.delete();
-      }
-    } catch (e) {
-      warn("checkLocalEvidence error: " + e.message);
-      return true;  // ante error, no retirar la etiqueta
-    } finally {
-      if (roi)  roi.delete();
-      if (lap)  lap.delete();
-    }
+  function freeZones() {
+    for (const z of _zones) if (z.patch) z.patch.delete();
+    _zones = [];
   }
 
-  // ── API pública ─────────────────────────────────────────────────────────────
+  // ── API ─────────────────────────────────────────────────────────────────────
 
-  /**
-   * Inicializa el localizador.
-   * @param {object}      cvInstance    — instancia de OpenCV.js (window.cv o similar)
-   * @param {ImageBitmap|HTMLImageElement|HTMLCanvasElement} refImage — imagen de referencia
-   * @param {object}      zonesJson     — contenido de zones.json
-   */
-  async function init(cvInstance, refImage, zonesJson) {
-    _cv    = cvInstance;
-    _error = null;
-    _ready = false;
+  async function init(cv, refImage, zonesJson) {
+    dispose();
+    _cv = cv; _error = null;
 
-    // 1. Verificar capacidades
-    const missing = checkCapabilities(_cv);
-    if (missing) {
-      _error = missing;
-      warn("init fallido: " + missing);
-      return;
+    const missing = checkCapabilities(cv);
+    if (missing) { _error = missing; warn(missing); return; }
+
+    let imgData;
+    if (refImage && refImage.data && refImage.width && refImage.height) {
+      imgData = refImage;
+    } else {
+      const c = document.createElement("canvas");
+      c.width = zonesJson.image.width; c.height = zonesJson.image.height;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(refImage, 0, 0, c.width, c.height);
+      imgData = ctx.getImageData(0, 0, c.width, c.height);
     }
+    _refW = imgData.width; _refH = imgData.height;
 
-    // 2. Cargar zonas
-    _zones = zonesJson.zones || [];
-    _refW  = zonesJson.image.width;
-    _refH  = zonesJson.image.height;
-
-    // 3. Convertir imagen de referencia a Mat en escala de grises
-    let refMat  = null;
-    let refGray = null;
+    let rgba = null, gray = null, noMask = null;
     try {
-      // Crear canvas temporal para leer los píxeles
-      const tmpCanvas  = document.createElement("canvas");
-      tmpCanvas.width  = _refW;
-      tmpCanvas.height = _refH;
-      const tmpCtx = tmpCanvas.getContext("2d");
-      tmpCtx.drawImage(refImage, 0, 0, _refW, _refH);
-      const imgData = tmpCtx.getImageData(0, 0, _refW, _refH);
+      rgba = cv.matFromImageData(imgData);
+      gray = new cv.Mat();
+      cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
 
-      refMat  = _cv.matFromImageData(imgData);
-      refGray = new _cv.Mat();
-      _cv.cvtColor(refMat, refGray, _cv.COLOR_RGBA2GRAY);
-    } catch (e) {
-      _error = "Error al procesar imagen de referencia: " + e.message;
-      warn(_error);
-      if (refMat)  refMat.delete();
-      if (refGray) refGray.delete();
-      return;
-    }
-
-    // 4. Crear detector ORB y extraer descriptores de la referencia
-    try {
-      _orbDetector    = new _cv.ORB(ORB_FEATURES);
-      _refKeypoints   = new _cv.KeyPointVector();
-      _refDescriptors = new _cv.Mat();
-      _orbDetector.detectAndCompute(refGray, new _cv.Mat(), _refKeypoints, _refDescriptors);
-
+      _orb = new cv.ORB(ORB_FEATURES);
+      _refKeypoints = new cv.KeyPointVector();
+      _refDescriptors = new cv.Mat();
+      noMask = new cv.Mat();
+      _orb.detectAndCompute(gray, noMask, _refKeypoints, _refDescriptors);
       if (_refKeypoints.size() < MIN_GOOD_MATCHES) {
-        _error = `Referencia tiene muy pocos keypoints (${_refKeypoints.size()}). Imagen inadecuada.`;
-        warn(_error);
-        cleanup();
-        refGray.delete();
-        refMat.delete();
-        return;
+        throw new Error(`Referencia con pocos keypoints (${_refKeypoints.size()})`);
       }
-      log(`Referencia: ${_refKeypoints.size()} keypoints extraídos.`);
-    } catch (e) {
-      _error = "Error al extraer descriptores de referencia: " + e.message;
-      warn(_error);
-      refGray.delete();
-      refMat.delete();
-      return;
-    }
+      _matcher = new cv.BFMatcher(cv.NORM_HAMMING, false);
 
-    // 5. Crear matcher (BFMatcher con NORM_HAMMING para descriptores binarios ORB)
-    try {
-      _matcher = new _cv.BFMatcher(_cv.NORM_HAMMING, false);
+      for (const z of zonesJson.zones || []) {
+        const xs = z.polygon_px.map(p => p[0]), ys = z.polygon_px.map(p => p[1]);
+        const x = Math.max(0, Math.floor(Math.min(...xs))), y = Math.max(0, Math.floor(Math.min(...ys)));
+        const w = Math.min(_refW, Math.ceil(Math.max(...xs))) - x;
+        const h = Math.min(_refH, Math.ceil(Math.max(...ys))) - y;
+        const roi = gray.roi(new cv.Rect(x, y, w, h));
+        const patch = roi.clone(); roi.delete();
+        let nKp = 0;
+        for (let i = 0; i < _refKeypoints.size(); i++) {
+          const p = _refKeypoints.get(i).pt;
+          if (pointInPolygon(p.x, p.y, z.polygon_px)) nKp++;
+        }
+        _zones.push({ id: z.id, name: z.name, polygon_px: z.polygon_px,
+                      bbox: { x, y, w, h }, patch, refArea: polygonArea(z.polygon_px), refKeypoints: nKp });
+        log(`Zona ${z.id}: ${nKp} keypoints de referencia dentro del polígono.`);
+      }
+      _ready = true;
+      log(`Referencia ${_refW}x${_refH}: ${_refKeypoints.size()} keypoints. Listo.`);
     } catch (e) {
-      _error = "Error al crear BFMatcher: " + e.message;
+      _error = "init: " + e.message;
       warn(_error);
-      refGray.delete();
-      refMat.delete();
-      return;
+      dispose();
+    } finally {
+      if (rgba) rgba.delete();
+      if (gray) gray.delete();
+      if (noMask) noMask.delete();
     }
-
-    refGray.delete();
-    refMat.delete();
-    _ready = true;
-    log("Localizer listo.");
   }
 
-  /**
-   * Localiza la zona GPIO en el fotograma dado.
-   * @param {ImageData} imageData — fotograma actual del canvas
-   * @returns {LocateResult}
-   */
   function locate(imageData) {
     const t0 = performance.now();
-
-    const nullResult = (diagMetrics = {}) => ({
+    const W = imageData.width, H = imageData.height;
+    const base = { frameKeypoints: 0, matchesUsed: 0, inliers: 0, frameW: W, frameH: H };
+    const empty = extra => ({
       found: false,
-      zones: _zones.map(z => ({ id: z.id, name: z.name, visible: false, polygon: null, labelPt: null })),
-      diagMetrics: { inliers: 0, matchesUsed: 0, reprojError: null,
-                     frameW: imageData.width, frameH: imageData.height,
-                     processingMs: Math.round(performance.now() - t0), ...diagMetrics },
+      zones: _zones.map(z => ({ id: z.id, name: z.name, visible: false, polygon: null, labelPt: null, evidence: null })),
+      diagMetrics: { ...base, ...extra, processingMs: Math.round(performance.now() - t0) },
     });
+    if (!_ready) return empty();
 
-    if (!_ready) return nullResult();
-
-    const cv  = _cv;
-    const W   = imageData.width;
-    const H   = imageData.height;
-
-    let frameMat  = null;
-    let frameGray = null;
-    let frameKps  = null;
-    let frameDesc = null;
-    let knnMatches = null;
-    let H_mat      = null;
-    let mask       = null;
-
+    const cv = _cv;
+    let rgba = null, gray = null, kps = null, desc = null, noMask = null,
+        knn = null, m1 = null, m2 = null, mask = null, Hm = null;
     try {
-      // 1. Frame a escala de grises
-      frameMat  = cv.matFromImageData(imageData);
-      frameGray = new cv.Mat();
-      cv.cvtColor(frameMat, frameGray, cv.COLOR_RGBA2GRAY);
+      rgba = cv.matFromImageData(imageData);
+      gray = new cv.Mat();
+      cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
 
-      // 2. Detectar y computar descriptores en el frame
-      frameKps  = new cv.KeyPointVector();
-      frameDesc = new cv.Mat();
-      _orbDetector.detectAndCompute(frameGray, new cv.Mat(), frameKps, frameDesc);
+      kps = new cv.KeyPointVector(); desc = new cv.Mat(); noMask = new cv.Mat();
+      _orb.detectAndCompute(gray, noMask, kps, desc);
+      const nKp = kps.size();
+      if (nKp < MIN_GOOD_MATCHES || desc.empty()) return empty({ frameKeypoints: nKp });
 
-      if (frameKps.size() < MIN_GOOD_MATCHES || frameDesc.empty()) {
-        return nullResult({ inliers: 0, matchesUsed: 0 });
+      knn = new cv.DMatchVectorVector();
+      _matcher.knnMatch(_refDescriptors, desc, knn, 2);
+      const good = [];
+      for (let i = 0; i < knn.size(); i++) {
+        const pair = knn.get(i);
+        if (pair.size() < 2) continue;
+        const a = pair.get(0), b = pair.get(1);
+        if (a.distance < RATIO_THRESH * b.distance) good.push([a.queryIdx, a.trainIdx]);
       }
+      if (good.length < MIN_GOOD_MATCHES) return empty({ frameKeypoints: nKp, matchesUsed: good.length });
 
-      // 3. kNN matching (k=2) + ratio test
-      knnMatches = new cv.DMatchVectorVector();
-      _matcher.knnMatch(_refDescriptors, frameDesc, knnMatches, 2);
-      const good = ratioTest(knnMatches);
-
-      if (good.length < MIN_GOOD_MATCHES) {
-        return nullResult({ matchesUsed: good.length });
+      const src = [], dst = [], refPts = [];
+      for (const [q, t] of good) {
+        const p = _refKeypoints.get(q).pt, f = kps.get(t).pt;
+        src.push(p.x, p.y); dst.push(f.x, f.y); refPts.push([p.x, p.y]);
       }
+      m1 = cv.matFromArray(good.length, 2, cv.CV_32F, src);
+      m2 = cv.matFromArray(good.length, 2, cv.CV_32F, dst);
+      mask = new cv.Mat();
+      Hm = cv.findHomography(m1, m2, cv.RANSAC, RANSAC_THRESH, mask);
+      if (!Hm || Hm.empty()) return empty({ frameKeypoints: nKp, matchesUsed: good.length });
 
-      // 4. Construir matrices de puntos para findHomography
-      const srcPts = good.map(m => _refKeypoints.get(m.queryIdx).pt);
-      const dstPts = good.map(m => frameKps.get(m.trainIdx).pt);
+      const inl = [];
+      for (let i = 0; i < mask.rows; i++) if (mask.data[i]) inl.push(i);
+      const diag = { frameKeypoints: nKp, matchesUsed: good.length, inliers: inl.length };
+      if (inl.length < MIN_INLIERS || inl.length / good.length < INLIER_RATIO_MIN) return empty(diag);
 
-      let mat1 = null;
-      let mat2 = null;
-      mask  = new cv.Mat();
+      const h = Array.from(Hm.data64F);
+      const zones = _zones.map(z => {
+        const poly = projectPolygon(cv, Hm, z.polygon_px);
+        const none = { id: z.id, name: z.name, visible: false, polygon: null, labelPt: null };
+        if (!isPolygonPlausible(poly, W, H, z.refArea)) return { ...none, evidence: { reason: "geometría" } };
 
-      // 5. findHomography con RANSAC
-      mat1  = buildPointsMat(cv, srcPts);
-      mat2  = buildPointsMat(cv, dstPts);
-      H_mat = cv.findHomography(mat1, mat2, cv.RANSAC, RANSAC_THRESH, mask);
+        const zoneInliers = inl.filter(i => pointInPolygon(refPts[i][0], refPts[i][1], z.polygon_px)).length;
+        const { ncc, std } = zoneSimilarity(cv, gray, h, z);
+        const evidence = { zoneInliers, ncc: Math.round(ncc * 100) / 100, std: Math.round(std) };
+        if (zoneInliers < MIN_ZONE_INLIERS || ncc < MIN_ZONE_NCC) return { ...none, evidence };
 
-      if (!H_mat || H_mat.empty()) {
-        return nullResult({ matchesUsed: good.length });
-      }
-
-      // 6. Contar inliers
-      let inliers = 0;
-      for (let i = 0; i < mask.rows; i++) {
-        if (mask.ucharAt(i, 0)) inliers++;
-      }
-
-      if (inliers < MIN_INLIERS || inliers / good.length < INLIER_RATIO_MIN) {
-        return nullResult({ inliers, matchesUsed: good.length });
-      }
-
-      // 7. Proyectar zonas y validar evidencia local
-      const zoneResults = _zones.map(zone => {
-        const projPolygon = projectPolygon(cv, H_mat, zone.polygon_px);
-
-        if (!isPolygonPlausible(projPolygon, W, H)) {
-          return { id: zone.id, name: zone.name, visible: false, polygon: null, labelPt: null };
-        }
-
-        // Validar evidencia local en la región proyectada
-        const hasEvidence = checkLocalEvidence(cv, frameGray, projPolygon);
-
-        // Calcular punto de etiqueta (centroide del polígono)
-        const cx = Math.round(projPolygon.reduce((s, p) => s + p[0], 0) / projPolygon.length);
-        const cy = Math.round(projPolygon.reduce((s, p) => s + p[1], 0) / projPolygon.length);
-
-        return {
-          id:      zone.id,
-          name:    zone.name,
-          visible: hasEvidence,
-          polygon: projPolygon,
-          labelPt: hasEvidence ? [cx, cy - 20] : null,
-        };
+        const rp = poly.map(([x, y]) => [Math.round(x), Math.round(y)]);
+        const cx = Math.round(rp.reduce((s, p) => s + p[0], 0) / rp.length);
+        const top = Math.min(...rp.map(p => p[1]));
+        return { id: z.id, name: z.name, visible: true, polygon: rp, labelPt: [cx, Math.max(24, top - 8)], evidence };
       });
 
-      const processingMs = Math.round(performance.now() - t0);
-
-      return {
-        found: true,
-        zones: zoneResults,
-        diagMetrics: {
-          inliers,
-          matchesUsed: good.length,
-          reprojError:  null,  // se puede calcular si se necesita
-          frameW: W,
-          frameH: H,
-          processingMs,
-        },
-      };
-
+      return { found: true, zones, diagMetrics: { ...diag, processingMs: Math.round(performance.now() - t0) } };
     } catch (e) {
-      warn("locate() excepción: " + e.message);
-      return nullResult();
+      warn("locate: " + (e && e.message ? e.message : e));
+      return empty();
     } finally {
-      // Liberar todos los Mat creados en este frame
-      if (frameMat)   frameMat.delete();
-      if (frameGray)  frameGray.delete();
-      if (frameKps)   frameKps.delete();
-      if (frameDesc)  frameDesc.delete();
-      if (knnMatches) knnMatches.delete();
-      if (H_mat)      H_mat.delete();
-      if (mask)       mask.delete();
-      if (mat1)       mat1.delete();
-      if (mat2)       mat2.delete();
+      for (const m of [rgba, gray, kps, desc, noMask, knn, m1, m2, mask, Hm]) if (m) m.delete();
     }
   }
 
-  /**
-   * Libera recursos de OpenCV. Llamar al descargar la página.
-   */
   function dispose() {
-    if (_refDescriptors) { _refDescriptors.delete(); _refDescriptors = null; }
-    if (_refKeypoints)   { _refKeypoints.delete();   _refKeypoints   = null; }
-    if (_orbDetector)    { _orbDetector.delete();     _orbDetector    = null; }
-    if (_matcher)        { _matcher.delete();         _matcher        = null; }
+    for (const m of [_refKeypoints, _refDescriptors, _orb, _matcher]) if (m) m.delete();
+    _refKeypoints = _refDescriptors = _orb = _matcher = null;
+    freeZones();
     _ready = false;
-    log("Localizer liberado.");
   }
 
-  function isReady() { return _ready; }
-  function getError() { return _error; }
-
-  return { init, locate, dispose, isReady, getError };
+  return { init, locate, dispose, isReady: () => _ready, getError: () => _error };
 })();

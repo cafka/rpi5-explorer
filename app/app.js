@@ -1,22 +1,19 @@
 /**
- * app.js — T2: coordinador principal
- *
- * Integra camera.js (T1), localizer.js y overlay.js (T2).
- * El módulo de cámara ya maneja getUserMedia y el loop de fotogramas.
- * Este módulo se engancha al loop mediante un callback de fotograma.
+ * app.js — T2: coordinador cámara + localizador + overlay
  *
  * Flujo:
- *   1. Esperar a que OpenCV.js esté listo.
- *   2. Cargar zones.json e imagen de referencia.
- *   3. Inicializar Localizer.
- *   4. Registrar onFrame en camera.js: en cada fotograma, llamar a locate()
- *      y pasar el resultado a Overlay.
- *   5. Al congelar: capturar el resultado actual y dibujarlo fijo.
- *   6. Al reanudar: limpiar overlay y relocalizar desde cero.
+ *   1. camera.js (script clásico) ya arrancó la cámara y expone window.cameraHooks.
+ *   2. Se registran onFrame / onFreeze / onResume.
+ *   3. Se espera a OpenCV.js (o a su error de carga) y se informa en pantalla.
+ *   4. Se cargan zones.json y la imagen de referencia indicada en zones.json.
+ *   5. En cada fotograma: se reduce a ≤ PROC_MAX_W px, se localiza, se reescala
+ *      el resultado a coordenadas del canvas y se dibuja.
  *
- * Métricas de rendimiento:
- *   Se lleva un registro de los últimos N tiempos de procesamiento
- *   para calcular fps y p95 de antigüedad, visibles en consola y en overlay.
+ * Métricas (medidas, no estimadas):
+ *   - loc/s: cantidad de llamadas a locate() completadas en los últimos 5 s / 5.
+ *   - antigüedad: desde que el fotograma se dibujó en el canvas hasta que su
+ *     resultado quedó dibujado en el overlay. No incluye la latencia interna
+ *     de la cámara del teléfono (no medible desde esta API).
  */
 
 "use strict";
@@ -24,178 +21,247 @@
 import { Localizer } from "./localizer.js";
 import { Overlay }   from "./overlay.js";
 
-// ── Elementos del DOM ─────────────────────────────────────────────────────────
-
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");
+const diagLine      = document.getElementById("diag-line");
 
-// ── Estado del localizador ────────────────────────────────────────────────────
+/** Ancho máximo del fotograma usado para localizar (reduce costo de ORB). */
+const PROC_MAX_W = 640;
 
 let _locReady   = false;
+let _locStatus  = "cargando OpenCV.js…";
+let _refLabel   = "";
 let _lastResult = null;
+let _frozen     = false;
 
-// ── Métricas de rendimiento ───────────────────────────────────────────────────
+// Canvas de trabajo reutilizado para reducir el fotograma
+const _work    = document.createElement("canvas");
+const _workCtx = _work.getContext("2d", { willReadFrequently: true });
 
-const PERF_WINDOW = 30;       // últimos 30 frames para calcular estadísticas
-const _perfTimes  = [];       // tiempos de procesamiento en ms
+// ── Métricas medidas ──────────────────────────────────────────────────────────
 
-function recordPerf(ms) {
-  _perfTimes.push(ms);
-  if (_perfTimes.length > PERF_WINDOW) _perfTimes.shift();
+const WINDOW_MS   = 5000;
+const _doneTimes  = [];   // instantes (ms) en que terminó cada locate()
+const _ages       = [];   // antigüedad (ms) de cada resultado presentado
+const AGE_SAMPLES = 100;
+
+function recordLocate(tDone, ageMs) {
+  _doneTimes.push(tDone);
+  while (_doneTimes.length && tDone - _doneTimes[0] > WINDOW_MS) _doneTimes.shift();
+  _ages.push(ageMs);
+  if (_ages.length > AGE_SAMPLES) _ages.shift();
+}
+
+function p95(values) {
+  if (!values.length) return 0;
+  const s = [...values].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.ceil(s.length * 0.95) - 1)];
 }
 
 function getPerfStats() {
-  if (_perfTimes.length === 0) return { fps: 0, p95Ms: 0 };
-  const sorted = [..._perfTimes].sort((a, b) => a - b);
-  const p95    = sorted[Math.floor(sorted.length * 0.95)] || sorted[sorted.length - 1];
-  // fps estimado: 1000 / media de los últimos frames
-  const avg    = _perfTimes.reduce((s, t) => s + t, 0) / _perfTimes.length;
-  return { fps: avg > 0 ? Math.round(1000 / avg * 10) / 10 : 0, p95Ms: Math.round(p95) };
+  const now = performance.now();
+  const recent = _doneTimes.filter(t => now - t <= WINDOW_MS);
+  return {
+    locPerSec: Math.round((recent.length / (WINDOW_MS / 1000)) * 10) / 10,
+    ageP95Ms:  Math.round(p95(_ages)),
+    samples:   _ages.length,
+    procSize:  `${_work.width}x${_work.height}`,
+    videoSize: `${canvasLive.width}x${canvasLive.height}`,
+  };
 }
-
-// Exponer métricas globalmente para pruebas manuales en consola
 window.getPerfStats = getPerfStats;
 
-// ── Inicializar overlay ───────────────────────────────────────────────────────
+// ── Línea de diagnóstico en pantalla ─────────────────────────────────────────
+
+let _lastDiagUpdate = 0;
+function updateDiag(force = false) {
+  const now = performance.now();
+  if (!force && now - _lastDiagUpdate < 500) return;
+  _lastDiagUpdate = now;
+  let text = `DIAGNÓSTICO · localizador: ${_locStatus}`;
+  if (_locReady) {
+    const s = getPerfStats();
+    const r = _lastResult && _lastResult.diagMetrics;
+    text += ` · ${s.locPerSec} loc/s · p95 ${s.ageP95Ms} ms · video ${s.videoSize} → ${s.procSize}`;
+    if (r) text += ` · kp ${r.frameKeypoints ?? "?"} · matches ${r.matchesUsed} · inliers ${r.inliers}`;
+    const g = _lastResult && _lastResult.zones && _lastResult.zones[0];
+    if (g) {
+      text += ` · ${g.id.toUpperCase()}: ${g.visible ? "ETIQUETADA" : "sin evidencia"}`;
+      if (g.evidence && g.evidence.ncc !== undefined) text += ` (zona inl ${g.evidence.zoneInliers}, ncc ${g.evidence.ncc})`;
+    }
+    if (_refLabel) text += ` · ref: ${_refLabel}`;
+  }
+  diagLine.textContent = text;
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
 
 Overlay.init(canvasOverlay);
 
-// Sincronizar tamaño del canvas de overlay con el de video cuando cambie
 function syncOverlaySize() {
-  if (canvasOverlay.width  !== canvasLive.width ||
-      canvasOverlay.height !== canvasLive.height) {
+  if (canvasOverlay.width !== canvasLive.width || canvasOverlay.height !== canvasLive.height) {
     canvasOverlay.width  = canvasLive.width;
     canvasOverlay.height = canvasLive.height;
   }
 }
 
-// ── Callback de fotograma (inyectado en camera.js) ────────────────────────────
-
-/**
- * Se llama en cada fotograma del loop de cámara (desde camera.js).
- * El parámetro canvas es el canvas-live con el fotograma dibujado.
- */
-function onFrame(canvas) {
-  if (!_locReady) return;
-
-  syncOverlaySize();
-
-  const t0 = performance.now();
-  const W  = canvas.width;
-  const H  = canvas.height;
-  if (W === 0 || H === 0) return;
-
-  // Leer el fotograma actual
-  const ctx       = canvas.getContext("2d");
-  const imageData = ctx.getImageData(0, 0, W, H);
-
-  // Localizar
-  const result = Localizer.locate(imageData);
-  _lastResult  = result;
-  recordPerf(performance.now() - t0);
-
-  // Dibujar overlay
-  if (result.found) {
-    // Comprobar si alguna zona tiene evidencia
-    const anyVisible = result.zones.some(z => z.visible);
-    if (anyVisible) {
-      Overlay.drawResult(result);
-    } else {
-      Overlay.showSearching();
-    }
-  } else {
-    Overlay.showSearching();
-  }
+/** Reescala un resultado de coordenadas de trabajo a coordenadas del canvas. */
+function scaleResult(result, k) {
+  if (!result || k === 1) return result;
+  const sp = p => [Math.round(p[0] * k), Math.round(p[1] * k)];
+  return {
+    ...result,
+    zones: result.zones.map(z => ({
+      ...z,
+      polygon: z.polygon ? z.polygon.map(sp) : null,
+      labelPt: z.labelPt ? sp(z.labelPt) : null,
+    })),
+  };
 }
 
-/**
- * Se llama cuando el usuario congela la imagen.
- * Fija el resultado actual en el overlay.
- */
+// ── Hooks de cámara ───────────────────────────────────────────────────────────
+
+function onFrame(canvas) {
+  if (!_locReady || _frozen) return;
+  const W = canvas.width, H = canvas.height;
+  if (!W || !H) return;
+
+  // Instante en que este fotograma quedó dibujado (onFrame se llama tras drawImage)
+  const tFrame = performance.now();
+  syncOverlaySize();
+
+  // Reducir para localizar
+  const k  = W > PROC_MAX_W ? W / PROC_MAX_W : 1;
+  const pw = Math.round(W / k), ph = Math.round(H / k);
+  if (_work.width !== pw || _work.height !== ph) { _work.width = pw; _work.height = ph; }
+  _workCtx.drawImage(canvas, 0, 0, pw, ph);
+  const imageData = _workCtx.getImageData(0, 0, pw, ph);
+
+  const result = scaleResult(Localizer.locate(imageData), k);
+  _lastResult  = result;
+
+  // Solo se dibuja la zona si el localizador dio evidencia en ESTE fotograma
+  const anyVisible = result.found && result.zones.some(z => z.visible);
+  if (anyVisible) Overlay.drawResult(result);
+  else            Overlay.showSearching();
+
+  const tDone = performance.now();
+  recordLocate(tDone, tDone - tFrame);
+  updateDiag();
+}
+
 function onFreeze() {
-  Overlay.freezeResult(_lastResult);
+  // Las etiquetas congeladas son las del último fotograma procesado,
+  // que es el mismo que queda fijo en el canvas (locate es síncrono por fotograma).
+  _frozen = true;
+  Overlay.freezeResult(_lastResult && _lastResult.found ? _lastResult : null);
   Overlay.drawFrozen();
 }
 
-/**
- * Se llama cuando el usuario reanuda la cámara.
- * Descarta el resultado congelado.
- */
 function onResume() {
+  _frozen     = false;
   _lastResult = null;
   Overlay.clear();
 }
 
-// ── Cargar recursos y arrancar ────────────────────────────────────────────────
-
-async function loadZones() {
-  const resp = await fetch("data/zones.json");
-  if (!resp.ok) throw new Error(`zones.json: HTTP ${resp.status}`);
-  return resp.json();
+if (window.cameraHooks) {
+  window.cameraHooks.onFrame  = onFrame;
+  window.cameraHooks.onFreeze = onFreeze;
+  window.cameraHooks.onResume = onResume;
+} else {
+  _locStatus = "ERROR: camera.js no expuso cameraHooks";
+  updateDiag(true);
 }
 
-async function loadRefImage(path) {
+// ── Carga de OpenCV.js ────────────────────────────────────────────────────────
+
+function cvLooksReady(cv) {
+  return !!(cv && typeof cv.Mat === "function" && typeof cv.ORB === "function");
+}
+
+/**
+ * Espera a OpenCV.js y resuelve { cv } (envuelto).
+ *
+ * IMPORTANTE: el objeto de OpenCV.js 4.9.0 tiene un método .then (Emscripten).
+ * Pasarlo directamente a resolve() hace que la Promise intente adoptarlo y
+ * no termine nunca. Por eso siempre se resuelve un objeto contenedor.
+ * Verificado en Node con app/vendor/opencv-4.9.0.js.
+ */
+function waitForOpenCV(timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
-    const img  = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`No se pudo cargar la imagen de referencia: ${path}`));
-    img.src = path;
+    if (window._cvLoadError) return reject(new Error(window._cvLoadError));
+
+    let done = false, poll = null, to = null;
+    const finish = (ok, v) => {
+      if (done) return;
+      done = true; clearInterval(poll); clearTimeout(to);
+      ok ? resolve({ cv: v }) : reject(v);
+    };
+
+    if (window._cvReady && cvLooksReady(window.cv)) return finish(true, window.cv);
+
+    window.addEventListener("opencv-ready", () => {
+      if (cvLooksReady(window.cv)) finish(true, window.cv);
+    }, { once: true });
+    window.addEventListener("opencv-error", () => finish(false, new Error(window._cvLoadError)), { once: true });
+
+    // Respaldo: algunas compilaciones no llaman Module.onRuntimeInitialized en el navegador
+    poll = setInterval(() => { if (cvLooksReady(window.cv)) finish(true, window.cv); }, 250);
+    to = setTimeout(() => finish(false, new Error(`OpenCV.js no inicializó en ${timeoutMs / 1000} s`)), timeoutMs);
   });
 }
 
-async function initLocalizer() {
-  try {
-    const [zonesJson, refImg] = await Promise.all([
-      loadZones(),
-      loadRefImage("data/reference/rpi5_ref.png"),
-    ]);
-
-    await Localizer.init(window.cv, refImg, zonesJson);
-
-    if (!Localizer.isReady()) {
-      console.warn("[app] Localizer no disponible:", Localizer.getError());
-      return;
-    }
-
-    _locReady = true;
-    console.log("[app] Localizer inicializado. T2 activo.");
-  } catch (e) {
-    console.error("[app] Error al inicializar localizer:", e.message);
-  }
+async function loadJson(url) {
+  const r = await fetch(url, { cache: "no-cache" });
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  return r.json();
 }
 
-// ── Esperar a OpenCV.js antes de inicializar ──────────────────────────────────
-
-function waitForOpenCV() {
-  return new Promise(resolve => {
-    if (window._cvReady && window.cv) {
-      resolve();
-    } else {
-      window.addEventListener("opencv-ready", resolve, { once: true });
-    }
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => resolve(img);
+    img.onerror = () => reject(new Error(`No se pudo cargar ${url}`));
+    img.src = url;
   });
 }
-
-// ── Punto de entrada ─────────────────────────────────────────────────────────
 
 (async () => {
-  // Registrar callbacks en camera.js antes de que inicie el loop
-  // camera.js expone window.cameraHooks para que otros módulos se enganchen
-  if (window.cameraHooks) {
-    window.cameraHooks.onFrame  = onFrame;
-    window.cameraHooks.onFreeze = onFreeze;
-    window.cameraHooks.onResume = onResume;
+  updateDiag(true);
+  let cv;
+  try {
+    ({ cv } = await waitForOpenCV());
+  } catch (e) {
+    _locStatus = "ERROR: " + e.message;
+    updateDiag(true);
+    console.error("[app]", e);
+    return;
   }
 
-  // Esperar a OpenCV.js (carga asíncrona)
-  console.log("[app] Esperando OpenCV.js…");
-  await waitForOpenCV();
-  console.log("[app] OpenCV.js listo. Inicializando localizer…");
+  _locStatus = "OpenCV listo; cargando referencia…";
+  updateDiag(true);
 
-  await initLocalizer();
+  try {
+    const zones = await loadJson("data/zones.json");
+    const img   = await loadImage("data/reference/" + zones.image.file);
+    _refLabel   = zones.image.kind || zones.image.file;
+    await Localizer.init(cv, img, zones);
+  } catch (e) {
+    _locStatus = "ERROR: " + e.message;
+    updateDiag(true);
+    console.error("[app]", e);
+    return;
+  }
+
+  if (!Localizer.isReady()) {
+    _locStatus = "ERROR: " + (Localizer.getError() || "init falló");
+    updateDiag(true);
+    return;
+  }
+
+  _locReady  = true;
+  _locStatus = "activo";
+  updateDiag(true);
 })();
 
-// ── Liberar recursos al cerrar ────────────────────────────────────────────────
-
-window.addEventListener("pagehide",     () => { Localizer.dispose(); Overlay.clear(); });
-window.addEventListener("beforeunload", () => { Localizer.dispose(); Overlay.clear(); });
+window.addEventListener("pagehide", () => { Localizer.dispose(); Overlay.clear(); });

@@ -3,6 +3,8 @@
     "file": "rpi5_ref.png",
     "width": 800,
     "height": 600,
+    "kind": "sintética provisional",
+    "test_fixture": "rpi5_ref_800x600.rgba",
     "origin": "Esquema sintético generado por make_reference.py. Proporciones basadas en Raspberry Pi 5 Product Brief. Material de ajuste; no usar como conjunto de evaluación.",
     "created": "2026-11-11"
   },
