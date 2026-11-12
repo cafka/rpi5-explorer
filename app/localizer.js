@@ -216,15 +216,19 @@ export const Localizer = (() => {
       cv.Laplacian(roi, lap, cv.CV_64F);
 
       // Varianza del Laplacian = medida de nitidez/textura
-      const mean = new cv.Mat();
-      const std  = new cv.Mat();
-      cv.meanStdDev(lap, mean, std);
-      const stdVal  = std.doubleAt(0, 0);
-      const variance = stdVal * stdVal;
-      mean.delete();
-      std.delete();
-
-      return variance > VISIBILITY_LAP_MIN;
+      let mean = null;
+      let std  = null;
+      try {
+        mean = new cv.Mat();
+        std  = new cv.Mat();
+        cv.meanStdDev(lap, mean, std);
+        const stdVal  = std.doubleAt(0, 0);
+        const variance = stdVal * stdVal;
+        return variance > VISIBILITY_LAP_MIN;
+      } finally {
+        if (mean) mean.delete();
+        if (std)  std.delete();
+      }
     } catch (e) {
       warn("checkLocalEvidence error: " + e.message);
       return true;  // ante error, no retirar la etiqueta
@@ -382,14 +386,14 @@ export const Localizer = (() => {
       const srcPts = good.map(m => _refKeypoints.get(m.queryIdx).pt);
       const dstPts = good.map(m => frameKps.get(m.trainIdx).pt);
 
-      const mat1 = buildPointsMat(cv, srcPts);
-      const mat2 = buildPointsMat(cv, dstPts);
+      let mat1 = null;
+      let mat2 = null;
       mask  = new cv.Mat();
 
       // 5. findHomography con RANSAC
+      mat1  = buildPointsMat(cv, srcPts);
+      mat2  = buildPointsMat(cv, dstPts);
       H_mat = cv.findHomography(mat1, mat2, cv.RANSAC, RANSAC_THRESH, mask);
-      mat1.delete();
-      mat2.delete();
 
       if (!H_mat || H_mat.empty()) {
         return nullResult({ matchesUsed: good.length });
@@ -456,6 +460,8 @@ export const Localizer = (() => {
       if (knnMatches) knnMatches.delete();
       if (H_mat)      H_mat.delete();
       if (mask)       mask.delete();
+      if (mat1)       mat1.delete();
+      if (mat2)       mat2.delete();
     }
   }
 
