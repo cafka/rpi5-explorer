@@ -174,6 +174,38 @@ rectificado con NCC por tramo y una métrica candidata de baja frecuencia (1/4, 
 Pruebas: 95/95 automáticas; Chrome (simulado) normal sin panel, debug con panel; URL pública verificada.
 Pendiente: captura de Claudia en modo diagnóstico para confirmar la causa antes de corregir.
 
+### Cuarta prueba en teléfono (12/11/2026) — sin etiqueta; sin contorno DEBUG
+Claudia: varios encuadres, GPIO visible, «GPIO: sin evidencia». No se vio contorno DEBUG ni recortes.
+Causas posibles revisadas:
+- El modo diagnóstico **estaba publicado**, pero solo se activa con `?debug=1`; además GitHub Pages
+  sirve con `max-age=600` y no había marca de versión visible → no se podía comprobar qué corría.
+- **Error encontrado**: `scaleResult` no escalaba `polygonDebug` (procesado → canvas, k = 1,125 en el
+  teléfono): el contorno DEBUG se habría dibujado ~11 % más chico y corrido. Corregido.
+
+Cambios (versión **t2-diag-2**, visible en la línea DIAGNÓSTICO):
+- `app/coords.js`: cadena de coordenadas en un módulo probado (ref —H→ procesado —×k→ canvas
+  —cover→ pantalla). La orientación la entrega el navegador; no hay rotación manual.
+- Modo diagnóstico: inliers (cian), contorno de placa proyectado (cian, punteado largo), GPIO
+  rechazado (gris, punteado corto, rótulo DEBUG). Al congelar: recortes exactos de referencia y
+  del cuadro rectificado con divisiones de tramo, ncc por tramo, métrica de baja frecuencia
+  (no decide), cadena de coordenadas medida, H y GPIO proyectado.
+- Botón «Guardar diagnóstico (archivo local)»: cuadro procesado + resultado + cadena, en Descargas.
+- `tools/replay_diag.py`: reproduce ese cuadro en la computadora con el mismo localizador.
+- `?v=t2-diag-2` en scripts/imports para no mezclar versiones por caché.
+No se cambió ningún umbral ni la regla de decisión.
+
+Verificado:
+- 110/110 pruebas automáticas (incluye coordenadas, placa girada 90° en cuadro vertical, datos de diagnóstico).
+- Chrome con cámara simulada vertical (placa girada, desenfoque y brillo), local y **URL pública**:
+  modo normal sin elementos DEBUG; modo debug con panel; export → reproducción **idéntica**
+  (mismos matches, inliers, proyección y ncc por tramo). Contorno de placa y GPIO proyectado
+  coinciden con lo visible en el cuadro simulado.
+- Observación (no concluyente): en el recorte de referencia los pines se ven como diagonales largas
+  (vista oblicua); es compatible con la hipótesis de paralaje, pendiente de confirmar con el teléfono.
+
+Pendiente: diagnóstico guardado desde el teléfono para distinguir desplazamiento / perspectiva /
+criterio. Las capturas que se usen para ajustar no servirán como evaluación independiente.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
