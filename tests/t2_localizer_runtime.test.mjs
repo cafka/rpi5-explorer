@@ -151,13 +151,28 @@ describe("localizer.js real + OpenCV.js 4.9.0 (simulado, escritorio)", () => {
   it("Oclusión simulada con objeto texturado (ruido sobre GPIO): no se acepta la zona", () => {
     const m = refMat();
     const xs = gpioRef.map(p => p[0]), ys = gpioRef.map(p => p[1]);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    // Enteros: con coordenadas decimales, m.data[o] con índice fraccionario no pinta nada
+    const x0 = Math.floor(Math.min(...xs)), x1 = Math.ceil(Math.max(...xs));
+    const y0 = Math.floor(Math.min(...ys)), y1 = Math.ceil(Math.max(...ys));
     let s = 99;
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
       s = (s * 1103515245 + 12345) & 0x7fffffff;
       const v = 60 + (s & 127), o = (y * m.cols + x) * 4;
       m.data[o] = v; m.data[o + 1] = v * 0.8; m.data[o + 2] = v * 0.6;
     }
+    const r = Localizer.locate(imageDataFromMat(m));
+    m.delete();
+    const g = r.zones.find(z => z.id === "gpio");
+    assert.equal(g.visible, false, `evidencia: ${JSON.stringify(g.evidence)}`);
+  });
+
+  it("Oclusión parcial (un tercio del GPIO tapado con un tono de piel): no se acepta", () => {
+    const m = refMat();
+    const xs = gpioRef.map(p => p[0]), ys = gpioRef.map(p => p[1]);
+    const x0 = Math.floor(Math.min(...xs)), x1 = Math.ceil(Math.max(...xs));
+    const y0 = Math.floor(Math.min(...ys)), y1 = Math.ceil(Math.max(...ys));
+    const xm = Math.round(x0 + (x1 - x0) / 3);
+    cv.rectangle(m, new cv.Point(x0, y0 - 4), new cv.Point(xm, y1 + 4), new cv.Scalar(205, 160, 130, 255), -1);
     const r = Localizer.locate(imageDataFromMat(m));
     m.delete();
     const g = r.zones.find(z => z.id === "gpio");

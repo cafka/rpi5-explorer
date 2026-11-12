@@ -5,12 +5,13 @@
  *   ORB → BFMatcher.knnMatch(k=2) → ratio test → findHomography(RANSAC)
  *   → proyección del polígono de la zona → evidencia específica de la zona.
  *
- * Evidencia de la zona (las dos condiciones deben cumplirse en ESTE fotograma):
- *   1. zoneInliers ≥ MIN_ZONE_INLIERS: correspondencias inliers de RANSAC cuyo
- *      keypoint de referencia cae dentro del polígono de la zona.
- *   2. ncc ≥ MIN_ZONE_NCC: correlación normalizada (TM_CCOEFF_NORMED) entre el
- *      parche de la zona en la referencia y el parche del fotograma rectificado
- *      con la homografía, más un contraste mínimo del parche.
+ * Evidencia de la zona (debe cumplirse en ESTE fotograma):
+ *   - El parche de la zona en el fotograma, rectificado con la homografía, se compara con
+ *     el parche de la referencia (TM_CCOEFF_NORMED) en ZONE_SEGMENTS tramos a lo largo
+ *     del eje mayor; TODOS deben superar MIN_ZONE_NCC, y el parche debe tener contraste
+ *     mínimo (MIN_PATCH_STD). Una oclusión parcial o total baja al menos un tramo.
+ *   - zoneInliers (inliers RANSAC cuyo punto de referencia cae en la zona) se informa
+ *     como diagnóstico: en el header GPIO, patrón repetitivo, casi no sobreviven al ratio test.
  *   Localizar la placa no basta: si la zona está tapada, fuera de cuadro o no se
  *   parece a la referencia, visible=false. Los umbrales son hipótesis iniciales;
  *   se validan con capturas reales en el teléfono.
@@ -29,20 +30,24 @@
 export const Localizer = (() => {
 
   let _cv = null, _ready = false, _error = null;
-  let _refKeypoints = null, _refDescriptors = null, _orb = null, _matcher = null;
+  let _refKeypoints = null, _refDescriptors = null, _orb = null, _orbFrame = null, _matcher = null;
   let _refW = 0, _refH = 0;
   let _refInfo = null;           // { width, height, keypoints, boardMask }
   let _zones = [];               // [{ id, name, polygon_px, bbox:{x,y,w,h}, patch: cv.Mat }]
 
   // ── Parámetros (hipótesis iniciales) ────────────────────────────────────────
-  const ORB_FEATURES      = 1500;
+  const ORB_FEATURES      = 1500;  // referencia: cobertura de toda la placa
+  const ORB_FRAME_FEATURES = 800;  // fotograma: menos puntos = matching más rápido (medido)
   const MIN_GOOD_MATCHES  = 12;
   const RATIO_THRESH      = 0.75;
   const RANSAC_THRESH     = 5.0;
   const MIN_INLIERS       = 10;
   const INLIER_RATIO_MIN  = 0.20;
-  const MIN_ZONE_INLIERS  = 6;
-  const MIN_ZONE_NCC      = 0.45;
+  // Evidencia de zona. zoneInliers queda solo como diagnóstico: el header GPIO es un patrón
+  // repetitivo y el ratio test descarta sus correspondencias (medido con la foto real:
+  // 0–1 inliers en zona aunque la placa se localice con cientos de inliers).
+  const MIN_ZONE_NCC      = 0.5;   // en CADA segmento de la zona
+  const ZONE_SEGMENTS     = 3;
   const MIN_PATCH_STD     = 8;
 
   const REQUIRED = ["Mat", "MatVector", "fillPoly", "ORB", "BFMatcher", "KeyPointVector", "DMatchVectorVector",
@@ -111,6 +116,16 @@ export const Localizer = (() => {
    * con el parche de referencia. Devuelve { ncc, std }.
    * M = H · T(bx,by): mapea coordenadas del parche → fotograma (WARP_INVERSE_MAP).
    */
+  /** NCC (TM_CCOEFF_NORMED) entre dos Mat del mismo tamaño; 0 si no es finito. */
+  function nccOf(cv, a, b) {
+    const res = new cv.Mat();
+    try {
+      cv.matchTemplate(a, b, res, cv.TM_CCOEFF_NORMED);
+      const v = res.data32F[0];
+      return Number.isFinite(v) ? v : 0;
+    } finally { res.delete(); }
+  }
+
   function zoneSimilarity(cv, frameGray, h, zone) {
     const { x: bx, y: by, w, h: hh } = zone.bbox;
     const M = cv.matFromArray(3, 3, cv.CV_64F, [
@@ -118,17 +133,25 @@ export const Localizer = (() => {
       h[3], h[4], h[3] * bx + h[4] * by + h[5],
       h[6], h[7], h[6] * bx + h[7] * by + h[8],
     ]);
-    const warped = new cv.Mat(), res = new cv.Mat(), mean = new cv.Mat(), std = new cv.Mat();
+    const warped = new cv.Mat(), mean = new cv.Mat(), std = new cv.Mat();
     try {
       cv.warpPerspective(frameGray, warped, M, new cv.Size(w, hh),
         cv.INTER_LINEAR | cv.WARP_INVERSE_MAP, cv.BORDER_CONSTANT, new cv.Scalar(0));
       cv.meanStdDev(warped, mean, std);
       const s = std.data64F[0];
-      if (s < MIN_PATCH_STD) return { ncc: 0, std: s };
-      cv.matchTemplate(warped, zone.patch, res, cv.TM_CCOEFF_NORMED);
-      const ncc = res.data32F[0];
-      return { ncc: Number.isFinite(ncc) ? ncc : 0, std: s };
-    } finally { M.delete(); warped.delete(); res.delete(); mean.delete(); std.delete(); }
+      if (s < MIN_PATCH_STD) return { ncc: 0, nccMin: 0, std: s };
+      const ncc = nccOf(cv, warped, zone.patch);
+
+      // Por segmentos a lo largo del eje mayor: una oclusión parcial baja al menos un tramo
+      const horiz = w >= hh, L = horiz ? w : hh, seg = Math.floor(L / ZONE_SEGMENTS);
+      let nccMin = 1;
+      for (let i = 0; i < ZONE_SEGMENTS; i++) {
+        const r = horiz ? new cv.Rect(i * seg, 0, seg, hh) : new cv.Rect(0, i * seg, w, seg);
+        const a = warped.roi(r), b = zone.patch.roi(r);
+        try { nccMin = Math.min(nccMin, nccOf(cv, a, b)); } finally { a.delete(); b.delete(); }
+      }
+      return { ncc, nccMin, std: s };
+    } finally { M.delete(); warped.delete(); mean.delete(); std.delete(); }
   }
 
   function freeZones() {
@@ -164,6 +187,7 @@ export const Localizer = (() => {
       cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
 
       _orb = new cv.ORB(ORB_FEATURES);
+      _orbFrame = new cv.ORB(ORB_FRAME_FEATURES);
       _refKeypoints = new cv.KeyPointVector();
       _refDescriptors = new cv.Mat();
       // Máscara de placa (opcional): solo se extraen puntos dentro del contorno de la
@@ -238,7 +262,7 @@ export const Localizer = (() => {
       cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
 
       kps = new cv.KeyPointVector(); desc = new cv.Mat(); noMask = new cv.Mat();
-      _orb.detectAndCompute(gray, noMask, kps, desc);
+      _orbFrame.detectAndCompute(gray, noMask, kps, desc);
       const nKp = kps.size();
       if (nKp < MIN_GOOD_MATCHES || desc.empty()) return empty({ frameKeypoints: nKp });
 
@@ -280,9 +304,10 @@ export const Localizer = (() => {
         if (!isPolygonPlausible(poly, W, H)) return { ...none, evidence: { reason: "geometría" } };
 
         const zoneInliers = inl.filter(i => pointInPolygon(refPts[i][0], refPts[i][1], z.polygon_px)).length;
-        const { ncc, std } = zoneSimilarity(cv, gray, h, z);
-        const evidence = { zoneInliers, ncc: Math.round(ncc * 100) / 100, std: Math.round(std) };
-        if (zoneInliers < MIN_ZONE_INLIERS || ncc < MIN_ZONE_NCC) return { ...none, evidence };
+        const { ncc, nccMin, std } = zoneSimilarity(cv, gray, h, z);
+        const evidence = { zoneInliers, ncc: Math.round(ncc * 100) / 100,
+                           nccMin: Math.round(nccMin * 100) / 100, std: Math.round(std) };
+        if (std < MIN_PATCH_STD || nccMin < MIN_ZONE_NCC) return { ...none, evidence };
 
         const rp = poly.map(([x, y]) => [Math.round(x), Math.round(y)]);
         const cx = Math.round(rp.reduce((s, p) => s + p[0], 0) / rp.length);
@@ -300,8 +325,8 @@ export const Localizer = (() => {
   }
 
   function dispose() {
-    for (const m of [_refKeypoints, _refDescriptors, _orb, _matcher]) if (m) m.delete();
-    _refKeypoints = _refDescriptors = _orb = _matcher = null;
+    for (const m of [_refKeypoints, _refDescriptors, _orb, _orbFrame, _matcher]) if (m) m.delete();
+    _refKeypoints = _refDescriptors = _orb = _orbFrame = _matcher = null;
     freeZones();
     _ready = false;
   }

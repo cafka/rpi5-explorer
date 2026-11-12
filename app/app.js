@@ -94,7 +94,9 @@ function updateDiag(force = false) {
     const g = _lastResult && _lastResult.zones && _lastResult.zones[0];
     if (g) {
       text += ` · ${g.id.toUpperCase()}: ${g.visible ? "ETIQUETADA" : "sin evidencia"}`;
-      if (g.evidence && g.evidence.ncc !== undefined) text += ` (zona inl ${g.evidence.zoneInliers}, ncc ${g.evidence.ncc})`;
+      if (g.evidence && g.evidence.ncc !== undefined) {
+        text += ` (ncc ${g.evidence.ncc}, mín. tramo ${g.evidence.nccMin}, inl zona ${g.evidence.zoneInliers})`;
+      }
     }
     if (_refLabel) text += ` · ref: ${_refLabel}`;
   }
