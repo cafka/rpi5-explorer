@@ -18,16 +18,16 @@
 
 "use strict";
 
-import { Localizer } from "./localizer.js?v=t2-diag-2";
-import { Overlay }   from "./overlay.js?v=t2-diag-2";
-import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-2";
+import { Localizer } from "./localizer.js?v=t2-diag-3";
+import { Overlay }   from "./overlay.js?v=t2-diag-3";
+import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-3";
 
 /**
  * Versión de la app. Se muestra en la línea DIAGNÓSTICO y se usa como ?v= en las
  * importaciones e index.html para que la caché de GitHub Pages (max-age=600) no sirva
  * una mezcla de versiones. Debe coincidir en index.html y aquí (lo comprueba una prueba).
  */
-const BUILD = "t2-diag-2";
+const BUILD = "t2-diag-3";
 
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");
@@ -235,6 +235,7 @@ function updateDiag(force = false) {
     }
     if (_refLabel) text += ` · ref: ${_refLabel}`;
   }
+  text += DEBUG ? " · [tocá aquí para salir del modo diagnóstico]" : " · [tocá aquí para modo diagnóstico]";
   diagLine.textContent = text;
 }
 
@@ -444,6 +445,14 @@ async function loadReference(zones) {
   _locStatus = "activo";
   updateDiag(true);
 })();
+
+// Tocar la línea DIAGNÓSTICO activa o desactiva el modo diagnóstico (recarga con/sin ?debug=1).
+// Evita depender de escribir la URL a mano en el teléfono.
+diagLine.addEventListener("click", () => {
+  const u = new URL(location.href);
+  if (DEBUG) u.searchParams.delete("debug"); else u.searchParams.set("debug", "1");
+  location.href = u.toString();
+});
 
 window.addEventListener("pagehide", () => { Localizer.dispose(); Overlay.clear(); });
 // Si el navegador restaura la página desde su caché (bfcache), el localizador ya

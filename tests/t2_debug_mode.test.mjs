@@ -18,6 +18,15 @@ describe("modo diagnóstico (?debug=1)", () => {
     assert.match(app, /const DEBUG = new URLSearchParams\(location\.search\)\.get\("debug"\) === "1"/);
   });
 
+  it("tocar la línea DIAGNÓSTICO alterna el modo (recarga con o sin ?debug=1)", () => {
+    assert.match(app, /diagLine\.addEventListener\("click"/);
+    assert.match(app, /searchParams\.set\("debug", "1"\)/);
+    assert.match(app, /searchParams\.delete\("debug"\)/);
+    const html = readFileSync(path.join(ROOT, "app", "index.html"), "utf8");
+    const tag = html.match(/<div id="diag-line"[^>]*>/s)[0];
+    assert.match(tag, /pointer-events:auto/, "la línea debe recibir toques");
+  });
+
   it("toda llamada a drawDebug / showDebugPanel está condicionada a DEBUG", () => {
     // Cada llamada debe estar en la misma línea que `if (DEBUG)` o dentro de un bloque
     // `if (DEBUG) {` abierto antes y no cerrado (conteo de llaves entre ambos puntos).

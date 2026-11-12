@@ -74,8 +74,10 @@ def main():
     open(rgba_path, "wb").write(frame.tobytes())
 
     rep_path = os.path.join(out_dir, name + "_replay.json")
-    subprocess.run(["node", os.path.join(ROOT, "tools", "replay_diag.mjs"), rgba_path, str(W), str(H), rep_path],
-                   check=True, cwd=ROOT)
+    cmd = ["node", os.path.join(ROOT, "tools", "replay_diag.mjs"), rgba_path, str(W), str(H), rep_path]
+    if len(sys.argv) > 2:          # p. ej. 800,1500,2500 → comparar sobre el mismo cuadro
+        cmd.append(sys.argv[2])
+    subprocess.run(cmd, check=True, cwd=ROOT)
     os.remove(rgba_path)
     rep = json.load(open(rep_path, encoding="utf-8"))
 

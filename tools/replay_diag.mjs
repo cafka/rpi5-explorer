@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const [rgbaPath, w, h, outPath] = process.argv.slice(2);
+const [rgbaPath, w, h, outPath, featureList] = process.argv.slice(2);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const zones = JSON.parse(readFileSync(path.join(ROOT, "app/data/zones.json"), "utf8"));
@@ -41,4 +41,22 @@ const out = {
 };
 writeFileSync(outPath, JSON.stringify(out));
 console.log("replay OK");
+
+// Comparación opcional sobre el MISMO cuadro con otras cantidades de puntos por fotograma.
+// Usa una copia en memoria del módulo; app/localizer.js no se modifica. Solo diagnóstico.
+if (featureList) {
+  const src = readFileSync(path.join(ROOT, "app/localizer.js"), "utf8");
+  for (const n of featureList.split(",").map(Number)) {
+    const patched = src.replace(/const ORB_FRAME_FEATURES = \d+;/, `const ORB_FRAME_FEATURES = ${n};`);
+    const mod = await import("data:text/javascript;base64," + Buffer.from(patched + `\n//${n}`).toString("base64"));
+    await mod.Localizer.init(cv, { width: RW, height: RH, data: new Uint8ClampedArray(ref) }, zones);
+    mod.Localizer.setDebug(true);
+    const v = mod.Localizer.locate(frame);
+    const z = v.zones[0];
+    console.log(`variante ${String(n).padStart(4)} puntos: found=${v.found} visible=${z.visible} ` +
+      `matches=${v.diagMetrics.matchesUsed} inliers=${v.diagMetrics.inliers} ` +
+      `gpio=${JSON.stringify(z.polygon || z.polygonDebug || null)} tramos=${JSON.stringify((z.evidence || {}).nccSeg || (z.evidence || {}).reason || null)}`);
+    mod.Localizer.dispose();
+  }
+}
 process.exit(0);

@@ -65,6 +65,18 @@ try {
     if (/ERROR/.test(last)) break;
   }
 
+  // Opcional: comprobar que tocar la línea DIAGNÓSTICO activa el modo diagnóstico
+  if (process.env.TOGGLE_TEST) {
+    await evalJs(`document.getElementById('diag-line').click()`);
+    let txt = "";
+    for (let i = 0; i < 30; i++) {
+      await sleep(2000);
+      txt = await evalJs(`location.search + ' | ' + (document.getElementById('diag-line')||{}).textContent`);
+      if (/MODO DEBUG/.test(txt || "") && /activo/.test(txt || "")) break;
+    }
+    console.log("[toque en la línea]", txt);
+  }
+
   const stats = await evalJs(`JSON.stringify(window.getPerfStats ? window.getPerfStats() : null)`);
   console.log("[perf]", stats);
 
