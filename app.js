@@ -18,16 +18,16 @@
 
 "use strict";
 
-import { Localizer } from "./localizer.js?v=t2-diag-4";
-import { Overlay }   from "./overlay.js?v=t2-diag-4";
-import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-4";
+import { Localizer } from "./localizer.js?v=t2-diag-5";
+import { Overlay }   from "./overlay.js?v=t2-diag-5";
+import { scaleResult, coverMapping, procSize } from "./coords.js?v=t2-diag-5";
 
 /**
  * Versión de la app. Se muestra en la línea DIAGNÓSTICO y se usa como ?v= en las
  * importaciones e index.html para que la caché de GitHub Pages (max-age=600) no sirva
  * una mezcla de versiones. Debe coincidir en index.html y aquí (lo comprueba una prueba).
  */
-const BUILD = "t2-diag-4";
+const BUILD = "t2-diag-5";
 
 const canvasLive    = document.getElementById("canvas-live");
 const canvasOverlay = document.getElementById("canvas-overlay");
@@ -42,6 +42,51 @@ const PROC_MAX_W = 640;
  * No cambia qué se etiqueta.
  */
 const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+
+/**
+ * Variantes de detector/matching para comparar EN VIVO en el teléfono (solo modo diagnóstico).
+ * Fuera del modo diagnóstico se ignora ?var= y se usan los valores por defecto.
+ */
+const VARIANTS = {
+  orb800:   { label: "ORB 800 (actual)",       cfg: {} },
+  orb1500:  { label: "ORB 1500",               cfg: { frameFeatures: 1500 } },
+  orb2500:  { label: "ORB 2500",               cfg: { frameFeatures: 2500, refFeatures: 2500 } },
+  ratio08:  { label: "ORB 800 · ratio 0,8",    cfg: { ratio: 0.8 } },
+  ratio085: { label: "ORB 800 · ratio 0,85",   cfg: { ratio: 0.85 } },
+  akaze:    { label: "AKAZE",                  cfg: { detector: "akaze" } },
+  akaze08:  { label: "AKAZE · ratio 0,8",      cfg: { detector: "akaze", ratio: 0.8 } },
+};
+const VARIANT_ID = DEBUG && VARIANTS[new URLSearchParams(location.search).get("var")]
+  ? new URLSearchParams(location.search).get("var") : "orb800";
+const VARIANT = VARIANTS[VARIANT_ID];
+
+/** Barra de variantes (solo modo diagnóstico): elegir recarga la página con &var=… */
+function showVariantBar() {
+  const bar = document.createElement("div");
+  bar.id = "variant-bar";
+  bar.style.cssText = "position:absolute;left:6px;right:6px;top:40px;display:flex;flex-wrap:wrap;gap:4px;" +
+    "z-index:6;font:11px monospace";
+  const lab = document.createElement("span");
+  lab.textContent = "DEBUG variante:";
+  lab.style.cssText = "color:#dfe;background:rgba(0,0,0,0.7);padding:4px 6px;border-radius:4px";
+  bar.appendChild(lab);
+  for (const [id, v] of Object.entries(VARIANTS)) {
+    const b = document.createElement("button");
+    b.textContent = v.label;
+    const on = id === VARIANT_ID;
+    b.style.cssText = `padding:4px 6px;border-radius:4px;border:1px solid ${on ? "#ff0" : "#888"};` +
+      `background:${on ? "#553" : "rgba(0,0,0,0.7)"};color:#dfe;font:11px monospace`;
+    b.addEventListener("click", () => {
+      const u = new URL(location.href);
+      u.searchParams.set("debug", "1");
+      u.searchParams.set("var", id);
+      location.href = u.toString();
+    });
+    bar.appendChild(b);
+  }
+  document.getElementById("viewer").appendChild(bar);
+}
+if (DEBUG) showVariantBar();
 
 /** Copia del resultado sin parches de diagnóstico (para congelar sin clonar arrays grandes). */
 function withoutPatches(r) {
@@ -74,7 +119,7 @@ function showDebugPanel(result, raw) {
   const ref = Localizer.getRefPatch && Localizer.getRefPatch(g ? g.id : "gpio");
   _debugPanel = document.createElement("div");
   _debugPanel.id = "debug-panel";
-  _debugPanel.style.cssText = "position:absolute;left:6px;right:6px;top:44px;padding:6px;border-radius:6px;" +
+  _debugPanel.style.cssText = "position:absolute;left:6px;right:6px;top:104px;padding:6px;border-radius:6px;" +
     "background:rgba(0,0,0,0.85);color:#dfe;font:11px/1.35 monospace;pointer-events:none;z-index:5;" +
     "max-height:70%;overflow:auto";
   const line = t => { const d = document.createElement("div"); d.textContent = t; _debugPanel.appendChild(d); return d; };
@@ -233,6 +278,7 @@ function updateDiag(force = false) {
         if (DEBUG && g.evidence.lowSeg) text += ` · DEBUG tramos [${g.evidence.nccSeg.join(",")}] baja frec. [${g.evidence.lowSeg.join(",")}]`;
       }
     }
+    if (DEBUG) text += ` · variante: ${VARIANT.label}`;
     if (_refLabel) text += ` · ref: ${_refLabel}`;
   }
   text += DEBUG ? " · [tocá aquí para salir del modo diagnóstico]" : " · [tocá aquí para modo diagnóstico]";
@@ -419,6 +465,7 @@ async function loadReference(zones) {
   try {
     const zones = await loadJson("data/zones.json");
     const ref   = await loadReference(zones);
+    Localizer.configure(VARIANT.cfg);   // modo normal: valores por defecto
     await Localizer.init(cv, ref.bmp, zones);
     const info  = Localizer.getRefInfo && Localizer.getRefInfo();
     // Identifica el archivo realmente cargado: nombre, tamaño decodificado y hash de sus bytes
@@ -450,7 +497,8 @@ async function loadReference(zones) {
 // Evita depender de escribir la URL a mano en el teléfono.
 diagLine.addEventListener("click", () => {
   const u = new URL(location.href);
-  if (DEBUG) u.searchParams.delete("debug"); else u.searchParams.set("debug", "1");
+  if (DEBUG) { u.searchParams.delete("debug"); u.searchParams.delete("var"); }
+  else u.searchParams.set("debug", "1");
   location.href = u.toString();
 });
 
