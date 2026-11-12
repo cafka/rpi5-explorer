@@ -75,7 +75,7 @@ def main():
 
     rep_path = os.path.join(out_dir, name + "_replay.json")
     cmd = ["node", os.path.join(ROOT, "tools", "replay_diag.mjs"), rgba_path, str(W), str(H), rep_path]
-    if len(sys.argv) > 2:          # p. ej. 800,1500,2500 → comparar sobre el mismo cuadro
+    if len(sys.argv) > 2:          # variantes, p. ej. orb800,orb1500,akaze (por defecto: un juego estándar)
         cmd.append(sys.argv[2])
     subprocess.run(cmd, check=True, cwd=ROOT)
     os.remove(rgba_path)

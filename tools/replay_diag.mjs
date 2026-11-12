@@ -42,21 +42,34 @@ const out = {
 writeFileSync(outPath, JSON.stringify(out));
 console.log("replay OK");
 
-// Comparación opcional sobre el MISMO cuadro con otras cantidades de puntos por fotograma.
-// Usa una copia en memoria del módulo; app/localizer.js no se modifica. Solo diagnóstico.
-if (featureList) {
-  const src = readFileSync(path.join(ROOT, "app/localizer.js"), "utf8");
-  for (const n of featureList.split(",").map(Number)) {
-    const patched = src.replace(/const ORB_FRAME_FEATURES = \d+;/, `const ORB_FRAME_FEATURES = ${n};`);
-    const mod = await import("data:text/javascript;base64," + Buffer.from(patched + `\n//${n}`).toString("base64"));
-    await mod.Localizer.init(cv, { width: RW, height: RH, data: new Uint8ClampedArray(ref) }, zones);
-    mod.Localizer.setDebug(true);
-    const v = mod.Localizer.locate(frame);
-    const z = v.zones[0];
-    console.log(`variante ${String(n).padStart(4)} puntos: found=${v.found} visible=${z.visible} ` +
-      `matches=${v.diagMetrics.matchesUsed} inliers=${v.diagMetrics.inliers} ` +
-      `gpio=${JSON.stringify(z.polygon || z.polygonDebug || null)} tramos=${JSON.stringify((z.evidence || {}).nccSeg || (z.evidence || {}).reason || null)}`);
-    mod.Localizer.dispose();
-  }
+// Variantes sobre el MISMO cuadro (solo diagnóstico). Cada una carga una copia en memoria
+// del módulo con un cambio; app/localizer.js no se modifica.
+//   orbN     → N puntos ORB por fotograma
+//   ratioR   → umbral del ratio test (0,75 actual)
+//   akaze    → detector AKAZE en referencia y fotograma (descriptor binario, NORM_HAMMING)
+const VARIANTS = (featureList || "orb800,orb1500,orb2500,ratio0.8,ratio0.85,akaze").split(",");
+const src = readFileSync(path.join(ROOT, "app/localizer.js"), "utf8");
+function patch(v) {
+  let s = src;
+  const m = v.match(/^(orb|ratio)([\d.]+)$/);
+  if (m && m[1] === "orb")   s = s.replace(/const ORB_FRAME_FEATURES = \d+;/, `const ORB_FRAME_FEATURES = ${m[2]};`);
+  if (m && m[1] === "ratio") s = s.replace(/const RATIO_THRESH\s*=\s*[\d.]+;/, `const RATIO_THRESH = ${m[2]};`);
+  if (v === "akaze") s = s.replace("new cv.ORB(ORB_FEATURES)", "new cv.AKAZE()").replace("new cv.ORB(ORB_FRAME_FEATURES)", "new cv.AKAZE()");
+  if (s === src && v !== "orb800" && v !== "ratio0.75") throw new Error(`variante sin efecto: ${v}`);
+  return s;
+}
+const gpioRef = zones.zones[0].polygon_px;
+for (const v of VARIANTS) {
+  const mod = await import("data:text/javascript;base64," + Buffer.from(patch(v) + `\n//${v}`).toString("base64"));
+  await mod.Localizer.init(cv, { width: RW, height: RH, data: new Uint8ClampedArray(ref) }, zones);
+  mod.Localizer.setDebug(true);
+  const t0 = performance.now();
+  const r = mod.Localizer.locate(frame);
+  const ms = Math.round(performance.now() - t0);
+  const z = r.zones[0];
+  console.log(`variante ${v.padEnd(10)} found=${String(r.found).padEnd(5)} visible=${String(z.visible).padEnd(5)} ` +
+    `kp=${r.diagMetrics.frameKeypoints} matches=${r.diagMetrics.matchesUsed} inliers=${r.diagMetrics.inliers} ${ms}ms ` +
+    `gpio=${JSON.stringify(z.polygon || z.polygonDebug || null)} tramos=${JSON.stringify((z.evidence || {}).nccSeg || (z.evidence || {}).reason || null)}`);
+  mod.Localizer.dispose();
 }
 process.exit(0);

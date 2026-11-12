@@ -57,6 +57,12 @@ describe("modo diagnóstico (?debug=1)", () => {
     assert.match(loc, /\.\.\.\(_debug \? \{ polygonDebug/);
   });
 
+  it("una homografía rechazada se dibuja en rojo y rotulada RECHAZADA, no en cian", () => {
+    assert.match(ovl, /const ok = !!result\.found;/);
+    assert.match(ovl, /ok \? "rgba\(0,230,255,0\.9\)" : "rgba\(255,60,60,0\.9\)"/);
+    assert.match(ovl, /homografía RECHAZADA/);
+  });
+
   it("overlay dibuja polygonDebug solo para zonas no visibles y rotuladas DEBUG", () => {
     assert.match(ovl, /if \(z\.visible \|\| !p \|\| p\.length < 3\) continue;/);
     assert.match(ovl, /DEBUG \$\{z\.id\}: proyección SIN evidencia/);

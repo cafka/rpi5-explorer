@@ -172,7 +172,8 @@ export const Overlay = (() => {
   /**
    * SOLO MODO DIAGNÓSTICO (?debug=1). Dibuja, sin borrar lo anterior:
    *   - puntos inliers de la homografía (cuadraditos cian),
-   *   - contorno de la placa proyectado (cian, punteado largo),
+   *   - contorno de la placa proyectado (cian punteado si la homografía se aceptó;
+   *     rojo punteado y rotulado «RECHAZADA» si no),
    *   - proyección de zonas RECHAZADAS (gris, punteado corto, rótulo «DEBUG … SIN evidencia»).
    * Nada de esto es naranja ni sólido: no se confunde con una etiqueta aceptada.
    * No se llama en el modo normal.
@@ -186,17 +187,30 @@ export const Overlay = (() => {
       ctx.save();
       ctx.fillStyle = "rgba(0,230,255,0.85)";
       for (const [x, y] of d.inlierPts || []) ctx.fillRect(x - 2, y - 2, 4, 4);
-      // Contorno de la placa proyectado: cian, punteado largo
+      // Contorno de la placa proyectado: cian punteado si la homografía fue ACEPTADA;
+      // rojo punteado y rotulado si fue RECHAZADA (pocos inliers): no es una localización.
       const b = d.board;
       if (b && b.length >= 3) {
+        const ok = !!result.found;
         ctx.setLineDash([14, 8]);
-        ctx.strokeStyle = "rgba(0,230,255,0.9)";
+        ctx.strokeStyle = ok ? "rgba(0,230,255,0.9)" : "rgba(255,60,60,0.9)";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(b[0][0], b[0][1]);
         for (let i = 1; i < b.length; i++) ctx.lineTo(b[i][0], b[i][1]);
         ctx.closePath();
         ctx.stroke();
+        if (!ok) {
+          ctx.setLineDash([]);
+          const inl = result.diagMetrics ? result.diagMetrics.inliers : "?";
+          const t = `DEBUG placa: homografía RECHAZADA (${inl} inliers < 10)`;
+          ctx.font = "13px monospace";
+          ctx.fillStyle = "rgba(0,0,0,0.7)";
+          ctx.fillRect(8, 40, ctx.measureText(t).width + 10, 18);
+          ctx.fillStyle = "#ff8080";
+          ctx.textAlign = "left"; ctx.textBaseline = "top";
+          ctx.fillText(t, 13, 42);
+        }
       }
       ctx.restore();
     }
