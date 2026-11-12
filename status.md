@@ -241,6 +241,30 @@ t2-diag-4: el reproductor compara sobre el mismo cuadro ORB 800/1500/2500, ratio
 debug positivo etiqueta; negativo sin etiqueta; modo normal sin elementos de diagnóstico.
 Pendiente: diagnóstico guardado desde el teléfono con la placa en el cuadro congelado.
 
+### Séptima ronda (12/11/2026) — «sigue sin funcionar»; sin archivos de diagnóstico
+No se encontró ningún `rpi5_diag_*.json` (proyecto ni Descargas). El flujo de guardar y copiar
+archivos no está funcionando → se cambia a **comparar variantes en vivo en el teléfono**.
+
+Cambios t2-diag-5 (solo modo diagnóstico; modo normal sin cambios, verificado):
+- `Localizer.configure()`: detector ORB/AKAZE, puntos y ratio. Por defecto ORB 1500/800, ratio 0,75.
+- Barra «DEBUG variante»: ORB 800 (actual), ORB 1500, ORB 2500, ratio 0,8, ratio 0,85, AKAZE,
+  AKAZE ratio 0,8. Se elige con un toque; la variante se muestra en la línea DIAGNÓSTICO.
+
+Hallazgo medido (escritorio, homografía conocida):
+| ratio | matches | inliers | error GPIO | NCC por tramo |
+| 0,75 | 257 | 222 | 0,9 px | 0,99 |
+| 0,80 | 309 | 236 | 1,5 px | 0,95–0,98 |
+| 0,85 | 383 | 268 | 5,1 px | 0,48–0,66 (bajo umbral) |
+El criterio del GPIO (patrón de ~10 px) es muy sensible a errores de pocos píxeles: aun con la
+placa localizada, ~5 px de error o el paralaje pueden dejarlo bajo 0,5. Hipótesis para T2, no resuelta.
+AKAZE (Chrome simulado, URL pública): etiqueta; 2 loc/s, p95 491 ms → probablemente < 3 loc/s en teléfono.
+118/118 pruebas.
+
+**Bloqueo registrado (regla de dos rondas):** varias rondas sin que la placa se localice en el
+teléfono (6–25 matches, 0–19 inliers). Si ninguna variante en vivo da ≥ 10 inliers estables, se
+propone cambiar de enfoque (referencia capturada con la propia cámara en vivo); requiere
+confirmación de Claudia antes de implementarlo.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 

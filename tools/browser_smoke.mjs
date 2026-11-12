@@ -65,6 +65,18 @@ try {
     if (/ERROR/.test(last)) break;
   }
 
+  // Opcional: tocar el botón de una variante (por su texto) y esperar a que quede activa
+  if (process.env.VARIANT_BTN) {
+    await evalJs(`[...document.querySelectorAll('#variant-bar button')].find(b => b.textContent === ${JSON.stringify(process.env.VARIANT_BTN)}).click()`);
+    let txt = "";
+    for (let i = 0; i < 40; i++) {
+      await sleep(2000);
+      txt = await evalJs(`location.search + ' | ' + (document.getElementById('diag-line')||{}).textContent`);
+      if ((txt || "").includes("variante: " + process.env.VARIANT_BTN) && /loc\/s/.test(txt) && /GPIO:/.test(txt)) break;
+    }
+    console.log("[variante]", txt);
+  }
+
   // Opcional: comprobar que tocar la línea DIAGNÓSTICO activa el modo diagnóstico
   if (process.env.TOGGLE_TEST) {
     await evalJs(`document.getElementById('diag-line').click()`);
