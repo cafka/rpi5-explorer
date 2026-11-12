@@ -123,15 +123,38 @@ debe repetirse con la referencia real. Congelar/volver siguen funcionando.
 Dispositivo: la foto adjunta lleva marca «HONOR Magic6 Lite»; falta confirmar que las capturas
 son del mismo teléfono, y registrar sistema operativo y navegador.
 
-### Reemplazo de referencia por foto real — EN CURSO
-- Preparado: `tools/make_reference_from_photo.py` (EXIF→orientación, sin metadatos, escala,
-  `zones.json` con sha256, fixture, vista previa del marcado), máscara de placa en
-  `localizer.js` (excluye cuadrícula y marca de agua), diagnóstico con archivo + dimensiones +
-  SHA-256 de los bytes cargados (error si no coincide con `zones.json`).
-- **Bloqueo**: el archivo original de la foto no está en el disco. La imagen del chat solo se
-  puede ver, no guardar, y puede estar recomprimida. Pedido a Claudia: copiarla en
-  `referencia_original/` (excluida de Git por posibles metadatos GPS).
-- No publicado todavía: la URL pública sigue con la referencia sintética.
+### Reemplazo de referencia por foto real — HECHO y PUBLICADO (12/11/2026)
+- Archivo recibido: `referencia_original/rbpi5.jfif` (JPEG 2000x1500, **sin EXIF** → no es el
+  original de cámara de 108 MP; probable copia exportada/descargada). Excluido de Git.
+- Referencia activa: `app/data/reference/rpi5_claudia_ref.jpg`, 1024x768, sin metadatos,
+  **SHA-256 eebafe3cdc05c5b54f96179824560944adb81036dfc1d2b3d98d816b828a8be9**.
+- Marcado (px del original 2000x1500): GPIO x 828–1835, y 1193–1318 (pines + base);
+  contorno de placa con conectores, excluye la marca de agua. Revisado con
+  `tests/fixtures/rpi5_claudia_ref.jpg.preview.png`.
+- La referencia sintética `rpi5_ref.png` se conserva como antecedente (no activa).
+
+### Hallazgos con la foto real y correcciones acotadas
+1. Solo **17 de 1500** puntos de referencia caen en el GPIO; en transformaciones conocidas
+   quedaban **0–1 inliers en la zona** aunque la placa se localizaba con 485–1115 inliers.
+   Causa: patrón repetitivo de 40 pines → el ratio test descarta sus correspondencias.
+   Corrección: la evidencia pasa a ser NCC del parche rectificado **en cada uno de 3 tramos**
+   (≥ 0,5) + contraste mínimo; los inliers en zona quedan como diagnóstico.
+2. Rendimiento en Chrome sin GPU con 1500 puntos por fotograma: 2,2 loc/s, p95 ≈ 550–590 ms
+   (no cumple). Corrección: 800 puntos por fotograma (1500 en la referencia) →
+   4,4–4,7 loc/s, p95 ≈ 360–420 ms en las mismas condiciones.
+3. Bug de prueba: la oclusión texturada no pintaba nada con coordenadas decimales. Corregido.
+
+### Pruebas tras el cambio (12/11/2026)
+- AUTOMÁTICAS (Node): **89/89**. Ejecución real del localizador: referencia y 3 transformaciones
+  conocidas → GPIO etiquetado (< 12 px); oclusión negra, texturada y **parcial (1/3)**, fuera
+  de cuadro y negativos → sin etiqueta. `locate()` medio en escritorio: 160 ms a 640x480.
+- SIMULADAS (Chrome, cámara falsa = la propia foto; **desarrollo, no evaluación**):
+  local y URL pública → GPIO ETIQUETADA (ncc 0,97), congelar conserva la etiqueta, reanudar OK;
+  escena sin placa → sin etiqueta (≈ 80 localizaciones).
+- URL pública verificada: `zones.json` declara `rpi5_claudia_ref.jpg`; el JPEG descargado
+  tiene el mismo SHA-256; el DIAGNÓSTICO en el navegador muestra
+  `ref: rpi5_claudia_ref.jpg 1024x768 sha256:eebafe3cdc05 · 1500 kp con máscara de placa · foto real`.
+- TELÉFONO: pendiente con la nueva referencia.
 
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
@@ -266,8 +289,10 @@ task1_probe.py pertenece al alcance reemplazado. Se conserva sin modificar.
 
 - T1: prueba de permiso denegado y recuperación pendiente. No bloquea T2.
 - T2: primera prueba en teléfono FALLÓ (causas de infraestructura, corregidas). Nueva prueba en teléfono pendiente.
-- T2: **falta referencia real** — foto de la placa de Claudia. Sin ella, la detección sobre la placa real casi seguro falla.
-- T2: rendimiento móvil sin medir; riesgo de < 3 loc/s.
+- T2: referencia real activa; falta evaluación en teléfono con encuadres nuevos.
+- T2: rendimiento móvil con la referencia real sin medir (con la sintética: 4,8–5,2 loc/s, p95 212–233 ms).
+- T2: umbrales de evidencia (NCC ≥ 0,5 por tramo) son hipótesis; pueden rechazar el GPIO en
+  ángulos fuertes o con reflejos, o aceptar objetos muy parecidos. Se ajustan con evidencia del teléfono.
 - `new cv.ORB()`: confirmado que funciona en 4.9.0 (escritorio); pendiente en el navegador del teléfono.
 - Wikimedia (foto CC BY 2.0 de SparkFun) devolvió HTTP 429; no se insistió.
 - Pendiente (hallazgo 5 T0): definir qué funciones estarán disponibles desde computadora. Retomar en T4–T5.
@@ -276,8 +301,8 @@ task1_probe.py pertenece al alcance reemplazado. Se conserva sin modificar.
 
 ## Próxima acción
 
-1. **Claudia**: copiar el archivo original de la foto en `referencia_original/`.
-2. Kiro: marcar GPIO y contorno de placa sobre el original (verificar con la vista previa), generar la referencia con `tools/make_reference_from_photo.py`, ejecutar pruebas, publicar con `tools/deploy_gh_pages.ps1` y verificar que la URL pública carga ese archivo (SHA-256 en DIAGNÓSTICO).
+1. ✓ Foto recibida, referencia generada, probada y publicada (sha256 eebafe3cdc05…).
+2. **Claudia**: evaluar T2 en el teléfono con encuadres NUEVOS (distintos de la foto de referencia).
 3. Claudia: medir T2 en el teléfono con la línea DIAGNÓSTICO.
 4. Si no alcanza 3 loc/s: corrección acotada (menos features ORB / menor resolución / Web Worker) y reevaluar.
 T3 solo con T2 aceptado e indicación expresa.
