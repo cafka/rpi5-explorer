@@ -169,5 +169,38 @@ export const Overlay = (() => {
     }
   }
 
-  return { init, drawResult, clear, showSearching, freezeResult, drawFrozen };
+  /**
+   * SOLO MODO DIAGNÓSTICO (?debug=1). Dibuja, sin borrar lo anterior, las proyecciones
+   * de zonas RECHAZADAS: gris, punteado y rotulado «DEBUG», para que no se confunda con
+   * una etiqueta aceptada. No se llama en el modo normal.
+   */
+  function drawDebug(result) {
+    if (!_canvas || !result || !result.zones) return;
+    const ctx = _ctx;
+    for (const z of result.zones) {
+      const p = z.polygonDebug;
+      if (z.visible || !p || p.length < 3) continue;
+      ctx.save();
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = "rgba(200,200,200,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(p[0][0], p[0][1]);
+      for (let i = 1; i < p.length; i++) ctx.lineTo(p[i][0], p[i][1]);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const x = Math.min(...p.map(q => q[0])), y = Math.min(...p.map(q => q[1]));
+      ctx.font = "12px monospace";
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      const t = `DEBUG ${z.id}: proyección SIN evidencia`;
+      ctx.fillRect(x, Math.max(0, y - 18), ctx.measureText(t).width + 8, 16);
+      ctx.fillStyle = "#ddd";
+      ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText(t, x + 4, Math.max(0, y - 17));
+      ctx.restore();
+    }
+  }
+
+  return { init, drawResult, clear, showSearching, freezeResult, drawFrozen, drawDebug };
 })();

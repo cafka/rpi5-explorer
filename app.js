@@ -28,6 +28,50 @@ const diagLine      = document.getElementById("diag-line");
 /** Ancho máximo del fotograma usado para localizar (reduce costo de ORB). */
 const PROC_MAX_W = 640;
 
+/**
+ * Modo diagnóstico: solo con ?debug=1 en la URL. Muestra la proyección de zonas
+ * rechazadas (gris, punteada, rotulada DEBUG) y, al congelar, los parches comparados.
+ * No cambia qué se etiqueta.
+ */
+const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+
+/** Copia del resultado sin parches de diagnóstico (para congelar sin clonar arrays grandes). */
+function withoutPatches(r) {
+  if (!r) return r;
+  return { ...r, zones: r.zones.map(({ debugPatch, ...z }) => z) };
+}
+
+let _debugPanel = null;
+function showDebugPanel(result) {
+  hideDebugPanel();
+  const g = result && result.zones && result.zones[0];
+  const ref = Localizer.getRefPatch && Localizer.getRefPatch(g ? g.id : "gpio");
+  _debugPanel = document.createElement("div");
+  _debugPanel.style.cssText = "position:absolute;left:6px;right:6px;top:44px;padding:6px;border-radius:6px;" +
+    "background:rgba(0,0,0,0.82);color:#dfe;font:11px/1.35 monospace;pointer-events:none;z-index:5";
+  const add = (label, img) => {
+    const t = document.createElement("div"); t.textContent = label; _debugPanel.appendChild(t);
+    if (!img) { const n = document.createElement("div"); n.textContent = "(sin parche)"; _debugPanel.appendChild(n); return; }
+    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+    c.style.cssText = "width:100%;image-rendering:pixelated;border:1px solid #888;margin:2px 0 6px";
+    c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
+    _debugPanel.appendChild(c);
+  };
+  add("DEBUG · parche GPIO de la REFERENCIA", ref);
+  add("DEBUG · parche GPIO de ESTE cuadro, rectificado con la homografía", g && g.debugPatch);
+  const e = g && g.evidence;
+  const txt = document.createElement("div");
+  txt.textContent = !result || !result.found
+    ? "DEBUG · placa no localizada en este cuadro"
+    : e && e.nccSeg
+      ? `DEBUG · ${g.visible ? "ACEPTADA" : "RECHAZADA"} · ncc tramos [${e.nccSeg.join(", ")}] (umbral 0,5 c/u) · ` +
+        `baja frec. tramos [${e.lowSeg.join(", ")}] (candidata, no decide) · inliers ${result.diagMetrics.inliers}`
+      : `DEBUG · ${JSON.stringify(e)}`;
+  _debugPanel.appendChild(txt);
+  document.getElementById("viewer").appendChild(_debugPanel);
+}
+function hideDebugPanel() { if (_debugPanel) { _debugPanel.remove(); _debugPanel = null; } }
+
 let _locReady   = false;
 let _locStatus  = "cargando OpenCV.js…";
 let _refLabel   = "";
@@ -85,7 +129,7 @@ function updateDiag(force = false) {
   const now = performance.now();
   if (!force && now - _lastDiagUpdate < 500) return;
   _lastDiagUpdate = now;
-  let text = `DIAGNÓSTICO · localizador: ${_locStatus}`;
+  let text = `${DEBUG ? "MODO DEBUG · " : ""}DIAGNÓSTICO · localizador: ${_locStatus}`;
   if (_locReady) {
     const s = getPerfStats();
     const r = _lastResult && _lastResult.diagMetrics;
@@ -96,6 +140,7 @@ function updateDiag(force = false) {
       text += ` · ${g.id.toUpperCase()}: ${g.visible ? "ETIQUETADA" : "sin evidencia"}`;
       if (g.evidence && g.evidence.ncc !== undefined) {
         text += ` (ncc ${g.evidence.ncc}, mín. tramo ${g.evidence.nccMin}, inl zona ${g.evidence.zoneInliers})`;
+        if (DEBUG && g.evidence.lowSeg) text += ` · DEBUG tramos [${g.evidence.nccSeg.join(",")}] baja frec. [${g.evidence.lowSeg.join(",")}]`;
       }
     }
     if (_refLabel) text += ` · ref: ${_refLabel}`;
@@ -161,6 +206,7 @@ function onFrame(canvas) {
   const anyVisible = result.found && result.zones.some(z => z.visible);
   if (anyVisible) Overlay.drawResult(result);
   else            Overlay.showSearching();
+  if (DEBUG) Overlay.drawDebug(result);
 
   const tDone = performance.now();
   recordLocate(tDone, tDone - tFrame);
@@ -171,11 +217,14 @@ function onFreeze() {
   // Las etiquetas congeladas son las del último fotograma procesado,
   // que es el mismo que queda fijo en el canvas (locate es síncrono por fotograma).
   _frozen = true;
-  Overlay.freezeResult(_lastResult && _lastResult.found ? _lastResult : null);
+  const frozen = withoutPatches(_lastResult && _lastResult.found ? _lastResult : null);
+  Overlay.freezeResult(frozen);
   Overlay.drawFrozen();
+  if (DEBUG) { Overlay.drawDebug(frozen); showDebugPanel(_lastResult); }
 }
 
 function onResume() {
+  hideDebugPanel();
   _frozen     = false;
   _lastResult = null;
   _firstDone  = null;
@@ -304,6 +353,7 @@ async function loadReference(zones) {
     return;
   }
 
+  if (Localizer.setDebug) Localizer.setDebug(DEBUG);
   _locReady  = true;
   _locStatus = "activo";
   updateDiag(true);

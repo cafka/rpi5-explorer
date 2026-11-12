@@ -49,12 +49,15 @@ export const Localizer = (() => {
   const MIN_ZONE_NCC      = 0.5;   // en CADA segmento de la zona
   const ZONE_SEGMENTS     = 3;
   const MIN_PATCH_STD     = 8;
+  const LOW_FACTOR        = 4;     // métrica candidata (diagnóstico): parches a 1/4
+
+  let _debug = false;              // modo diagnóstico (?debug=1): devuelve parches y proyección rechazada
 
   const REQUIRED = ["Mat", "MatVector", "fillPoly", "ORB", "BFMatcher", "KeyPointVector", "DMatchVectorVector",
     "findHomography", "perspectiveTransform", "matFromArray", "matFromImageData",
     "cvtColor", "COLOR_RGBA2GRAY", "NORM_HAMMING", "RANSAC", "warpPerspective",
     "WARP_INVERSE_MAP", "INTER_LINEAR", "BORDER_CONSTANT", "matchTemplate",
-    "TM_CCOEFF_NORMED", "meanStdDev", "Rect", "Size", "Scalar"];
+    "TM_CCOEFF_NORMED", "meanStdDev", "Rect", "Size", "Scalar", "resize", "INTER_AREA"];
 
   const log  = m => console.log("[localizer]", m);
   const warn = m => console.warn("[localizer]", m);
@@ -111,11 +114,6 @@ export const Localizer = (() => {
     } finally { src.delete(); dst.delete(); }
   }
 
-  /**
-   * Rectifica la zona del fotograma a la geometría de la referencia y la compara
-   * con el parche de referencia. Devuelve { ncc, std }.
-   * M = H · T(bx,by): mapea coordenadas del parche → fotograma (WARP_INVERSE_MAP).
-   */
   /** NCC (TM_CCOEFF_NORMED) entre dos Mat del mismo tamaño; 0 si no es finito. */
   function nccOf(cv, a, b) {
     const res = new cv.Mat();
@@ -126,6 +124,33 @@ export const Localizer = (() => {
     } finally { res.delete(); }
   }
 
+  /** NCC por tramos a lo largo del eje mayor. Devuelve el array de valores. */
+  function segmentNcc(cv, a, b) {
+    const w = a.cols, hh = a.rows, horiz = w >= hh;
+    const seg = Math.floor((horiz ? w : hh) / ZONE_SEGMENTS);
+    const out = [];
+    for (let i = 0; i < ZONE_SEGMENTS; i++) {
+      const r = horiz ? new cv.Rect(i * seg, 0, seg, hh) : new cv.Rect(0, i * seg, w, seg);
+      const sa = a.roi(r), sb = b.roi(r);
+      try { out.push(nccOf(cv, sa, sb)); } finally { sa.delete(); sb.delete(); }
+    }
+    return out;
+  }
+
+  const r2 = v => Math.round(v * 100) / 100;
+
+  /**
+   * Rectifica la zona del fotograma a la geometría de la referencia y la compara
+   * con el parche de referencia.
+   * M = H · T(bx,by): mapea coordenadas del parche → fotograma (WARP_INVERSE_MAP).
+   *
+   * Devuelve:
+   *   ncc, nccMin, nccSeg  — métrica que DECIDE (resolución completa del parche).
+   *   low, lowMin, lowSeg  — métrica CANDIDATA, solo diagnóstico: parches reducidos a
+   *                          1/LOW_FACTOR (menos sensible al detalle de los pines, que
+   *                          cambia con el punto de vista por paralaje). No decide nada.
+   *   debugPatch           — solo en modo diagnóstico: parche rectificado (gris, ImageData-like).
+   */
   function zoneSimilarity(cv, frameGray, h, zone) {
     const { x: bx, y: by, w, h: hh } = zone.bbox;
     const M = cv.matFromArray(3, 3, cv.CV_64F, [
@@ -133,29 +158,37 @@ export const Localizer = (() => {
       h[3], h[4], h[3] * bx + h[4] * by + h[5],
       h[6], h[7], h[6] * bx + h[7] * by + h[8],
     ]);
-    const warped = new cv.Mat(), mean = new cv.Mat(), std = new cv.Mat();
+    const warped = new cv.Mat(), mean = new cv.Mat(), std = new cv.Mat(), small = new cv.Mat();
     try {
       cv.warpPerspective(frameGray, warped, M, new cv.Size(w, hh),
         cv.INTER_LINEAR | cv.WARP_INVERSE_MAP, cv.BORDER_CONSTANT, new cv.Scalar(0));
       cv.meanStdDev(warped, mean, std);
       const s = std.data64F[0];
-      if (s < MIN_PATCH_STD) return { ncc: 0, nccMin: 0, std: s };
-      const ncc = nccOf(cv, warped, zone.patch);
-
-      // Por segmentos a lo largo del eje mayor: una oclusión parcial baja al menos un tramo
-      const horiz = w >= hh, L = horiz ? w : hh, seg = Math.floor(L / ZONE_SEGMENTS);
-      let nccMin = 1;
-      for (let i = 0; i < ZONE_SEGMENTS; i++) {
-        const r = horiz ? new cv.Rect(i * seg, 0, seg, hh) : new cv.Rect(0, i * seg, w, seg);
-        const a = warped.roi(r), b = zone.patch.roi(r);
-        try { nccMin = Math.min(nccMin, nccOf(cv, a, b)); } finally { a.delete(); b.delete(); }
+      const debugPatch = _debug ? grayToImageData(warped) : null;
+      if (s < MIN_PATCH_STD) {
+        return { ncc: 0, nccMin: 0, nccSeg: [], low: 0, lowMin: 0, lowSeg: [], std: s, debugPatch };
       }
-      return { ncc, nccMin, std: s };
-    } finally { M.delete(); warped.delete(); mean.delete(); std.delete(); }
+      const ncc = nccOf(cv, warped, zone.patch);
+      const nccSeg = segmentNcc(cv, warped, zone.patch);
+
+      cv.resize(warped, small, zone.patchLow.size(), 0, 0, cv.INTER_AREA);
+      const low = nccOf(cv, small, zone.patchLow);
+      const lowSeg = segmentNcc(cv, small, zone.patchLow);
+
+      return { ncc, nccMin: Math.min(...nccSeg), nccSeg,
+               low, lowMin: Math.min(...lowSeg), lowSeg, std: s, debugPatch };
+    } finally { M.delete(); warped.delete(); mean.delete(); std.delete(); small.delete(); }
+  }
+
+  /** Convierte un Mat gris de 8 bits en un objeto { width, height, data RGBA }. */
+  function grayToImageData(m) {
+    const n = m.cols * m.rows, src = m.data, data = new Uint8ClampedArray(n * 4);
+    for (let i = 0; i < n; i++) { const v = src[i]; data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v; data[i * 4 + 3] = 255; }
+    return { width: m.cols, height: m.rows, data };
   }
 
   function freeZones() {
-    for (const z of _zones) if (z.patch) z.patch.delete();
+    for (const z of _zones) { if (z.patch) z.patch.delete(); if (z.patchLow) z.patchLow.delete(); }
     _zones = [];
   }
 
@@ -217,13 +250,17 @@ export const Localizer = (() => {
         const h = Math.min(_refH, Math.ceil(Math.max(...ys))) - y;
         const roi = gray.roi(new cv.Rect(x, y, w, h));
         const patch = roi.clone(); roi.delete();
+        // Versión reducida para la métrica candidata (solo diagnóstico)
+        const patchLow = new cv.Mat();
+        cv.resize(patch, patchLow, new cv.Size(Math.max(ZONE_SEGMENTS * 2, Math.round(w / LOW_FACTOR)),
+                                               Math.max(2, Math.round(h / LOW_FACTOR))), 0, 0, cv.INTER_AREA);
         let nKp = 0;
         for (let i = 0; i < _refKeypoints.size(); i++) {
           const p = _refKeypoints.get(i).pt;
           if (pointInPolygon(p.x, p.y, z.polygon_px)) nKp++;
         }
         _zones.push({ id: z.id, name: z.name, polygon_px: z.polygon_px,
-                      bbox: { x, y, w, h }, patch, refArea: polygonArea(z.polygon_px), refKeypoints: nKp });
+                      bbox: { x, y, w, h }, patch, patchLow, refArea: polygonArea(z.polygon_px), refKeypoints: nKp });
         log(`Zona ${z.id}: ${nKp} keypoints de referencia dentro del polígono.`);
       }
       _refInfo = { width: _refW, height: _refH, keypoints: _refKeypoints.size(),
@@ -304,15 +341,25 @@ export const Localizer = (() => {
         if (!isPolygonPlausible(poly, W, H)) return { ...none, evidence: { reason: "geometría" } };
 
         const zoneInliers = inl.filter(i => pointInPolygon(refPts[i][0], refPts[i][1], z.polygon_px)).length;
-        const { ncc, nccMin, std } = zoneSimilarity(cv, gray, h, z);
-        const evidence = { zoneInliers, ncc: Math.round(ncc * 100) / 100,
-                           nccMin: Math.round(nccMin * 100) / 100, std: Math.round(std) };
-        if (std < MIN_PATCH_STD || nccMin < MIN_ZONE_NCC) return { ...none, evidence };
-
+        const sim = zoneSimilarity(cv, gray, h, z);
+        const evidence = {
+          zoneInliers, std: Math.round(sim.std),
+          ncc: r2(sim.ncc), nccMin: r2(sim.nccMin), nccSeg: sim.nccSeg.map(r2),
+          // Candidata (solo diagnóstico, no decide):
+          low: r2(sim.low), lowMin: r2(sim.lowMin), lowSeg: sim.lowSeg.map(r2),
+        };
         const rp = poly.map(([x, y]) => [Math.round(x), Math.round(y)]);
+        if (sim.std < MIN_PATCH_STD || sim.nccMin < MIN_ZONE_NCC) {
+          // Rechazada: sin polígono para la etiqueta. En modo diagnóstico se informa la
+          // proyección (polygonDebug) para ver dónde cayó; nunca se dibuja como etiqueta.
+          return { ...none, evidence,
+                   ...(_debug ? { polygonDebug: rp, debugPatch: sim.debugPatch } : {}) };
+        }
+
         const cx = Math.round(rp.reduce((s, p) => s + p[0], 0) / rp.length);
         const top = Math.min(...rp.map(p => p[1]));
-        return { id: z.id, name: z.name, visible: true, polygon: rp, labelPt: [cx, Math.max(24, top - 8)], evidence };
+        return { id: z.id, name: z.name, visible: true, polygon: rp, labelPt: [cx, Math.max(24, top - 8)], evidence,
+                 ...(_debug ? { debugPatch: sim.debugPatch } : {}) };
       });
 
       return { found: true, zones, diagMetrics: { ...diag, processingMs: Math.round(performance.now() - t0) } };
@@ -331,6 +378,15 @@ export const Localizer = (() => {
     _ready = false;
   }
 
+  /** Modo diagnóstico: devuelve proyecciones rechazadas y parches. No cambia la decisión. */
+  function setDebug(on) { _debug = !!on; }
+
+  /** Parche de referencia de una zona (gris → RGBA), para comparar en modo diagnóstico. */
+  function getRefPatch(id) {
+    const z = _zones.find(z => z.id === id);
+    return z ? grayToImageData(z.patch) : null;
+  }
+
   return { init, locate, dispose, isReady: () => _ready, getError: () => _error,
-           getRefInfo: () => _refInfo };
+           getRefInfo: () => _refInfo, setDebug, getRefPatch };
 })();
