@@ -31,6 +31,7 @@ export const Localizer = (() => {
   let _cv = null, _ready = false, _error = null;
   let _refKeypoints = null, _refDescriptors = null, _orb = null, _matcher = null;
   let _refW = 0, _refH = 0;
+  let _refInfo = null;           // { width, height, keypoints, boardMask }
   let _zones = [];               // [{ id, name, polygon_px, bbox:{x,y,w,h}, patch: cv.Mat }]
 
   // ── Parámetros (hipótesis iniciales) ────────────────────────────────────────
@@ -44,7 +45,7 @@ export const Localizer = (() => {
   const MIN_ZONE_NCC      = 0.45;
   const MIN_PATCH_STD     = 8;
 
-  const REQUIRED = ["Mat", "ORB", "BFMatcher", "KeyPointVector", "DMatchVectorVector",
+  const REQUIRED = ["Mat", "MatVector", "fillPoly", "ORB", "BFMatcher", "KeyPointVector", "DMatchVectorVector",
     "findHomography", "perspectiveTransform", "matFromArray", "matFromImageData",
     "cvtColor", "COLOR_RGBA2GRAY", "NORM_HAMMING", "RANSAC", "warpPerspective",
     "WARP_INVERSE_MAP", "INTER_LINEAR", "BORDER_CONSTANT", "matchTemplate",
@@ -165,7 +166,20 @@ export const Localizer = (() => {
       _orb = new cv.ORB(ORB_FEATURES);
       _refKeypoints = new cv.KeyPointVector();
       _refDescriptors = new cv.Mat();
-      noMask = new cv.Mat();
+      // Máscara de placa (opcional): solo se extraen puntos dentro del contorno de la
+      // placa, para que el fondo, la cuadrícula o una marca de agua de la foto no aporten
+      // correspondencias falsas.
+      const board = zonesJson.board_polygon_px;
+      if (Array.isArray(board) && board.length >= 3) {
+        noMask = cv.Mat.zeros(gray.rows, gray.cols, cv.CV_8UC1);
+        const pts = cv.matFromArray(board.length, 1, cv.CV_32SC2, board.flat().map(Math.round));
+        const vec = new cv.MatVector();
+        vec.push_back(pts);
+        cv.fillPoly(noMask, vec, new cv.Scalar(255));
+        vec.delete(); pts.delete();
+      } else {
+        noMask = new cv.Mat();
+      }
       _orb.detectAndCompute(gray, noMask, _refKeypoints, _refDescriptors);
       if (_refKeypoints.size() < MIN_GOOD_MATCHES) {
         throw new Error(`Referencia con pocos keypoints (${_refKeypoints.size()})`);
@@ -188,8 +202,11 @@ export const Localizer = (() => {
                       bbox: { x, y, w, h }, patch, refArea: polygonArea(z.polygon_px), refKeypoints: nKp });
         log(`Zona ${z.id}: ${nKp} keypoints de referencia dentro del polígono.`);
       }
+      _refInfo = { width: _refW, height: _refH, keypoints: _refKeypoints.size(),
+                   boardMask: Array.isArray(board) && board.length >= 3 };
       _ready = true;
-      log(`Referencia ${_refW}x${_refH}: ${_refKeypoints.size()} keypoints. Listo.`);
+      log(`Referencia ${_refW}x${_refH}: ${_refKeypoints.size()} keypoints` +
+          (_refInfo.boardMask ? " (con máscara de placa)" : "") + ". Listo.");
     } catch (e) {
       _error = "init: " + e.message;
       warn(_error);
@@ -289,5 +306,6 @@ export const Localizer = (() => {
     _ready = false;
   }
 
-  return { init, locate, dispose, isReady: () => _ready, getError: () => _error };
+  return { init, locate, dispose, isReady: () => _ready, getError: () => _error,
+           getRefInfo: () => _refInfo };
 })();

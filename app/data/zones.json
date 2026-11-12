@@ -1,42 +1,43 @@
 {
-  "image": {
-    "file": "rpi5_ref.png",
-    "width": 800,
-    "height": 600,
-    "kind": "sintética provisional",
-    "test_fixture": "rpi5_ref_800x600.rgba",
-    "origin": "Esquema sintético generado por make_reference.py. Proporciones basadas en Raspberry Pi 5 Product Brief. Material de ajuste; no usar como conjunto de evaluación.",
-    "created": "2026-11-11"
-  },
-  "zones": [
-    {
-      "id": "gpio",
-      "name": "GPIO 40-pin header",
-      "description": "Conector de 2×20 pines en el borde superior izquierdo de la placa",
-      "polygon_px": [
-        [
-          62,
-          78
-        ],
-        [
-          474,
-          78
-        ],
-        [
-          474,
-          122
-        ],
-        [
-          62,
-          122
-        ]
-      ],
-      "label_offset_px": [
-        204,
-        56
-      ],
-      "source": "Raspberry Pi 5 Product Brief — raspberrypi.com/products/raspberry-pi-5/",
-      "consulted": "2026-11-11"
-    }
-  ]
+    "image":  {
+                  "file":  "rpi5_ref.png",
+                  "width":  800,
+                  "height":  600,
+                  "kind":  "sintética provisional",
+                  "test_fixture":  "rpi5_ref_800x600.rgba",
+                  "origin":  "Esquema sintético generado por make_reference.py. Proporciones basadas en Raspberry Pi 5 Product Brief. Material de ajuste; no usar como conjunto de evaluación.",
+                  "created":  "2026-11-11",
+                  "sha256":  "0c4ebf6b7f2265bb8f3c6867ac176d7109160d9b32fb0a406b8ba79da1b57a8b"
+              },
+    "zones":  [
+                  {
+                      "id":  "gpio",
+                      "name":  "GPIO 40-pin header",
+                      "description":  "Conector de 2×20 pines en el borde superior izquierdo de la placa",
+                      "polygon_px":  [
+                                         [
+                                             62,
+                                             78
+                                         ],
+                                         [
+                                             474,
+                                             78
+                                         ],
+                                         [
+                                             474,
+                                             122
+                                         ],
+                                         [
+                                             62,
+                                             122
+                                         ]
+                                     ],
+                      "label_offset_px":  [
+                                              204,
+                                              56
+                                          ],
+                      "source":  "Raspberry Pi 5 Product Brief — raspberrypi.com/products/raspberry-pi-5/",
+                      "consulted":  "2026-11-11"
+                  }
+              ]
 }

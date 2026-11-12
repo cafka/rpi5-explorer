@@ -235,13 +235,32 @@ async function loadJson(url) {
   return r.json();
 }
 
-function loadImage(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload  = () => resolve(img);
-    img.onerror = () => reject(new Error(`No se pudo cargar ${url}`));
-    img.src = url;
-  });
+/**
+ * Descarga la referencia, calcula el SHA-256 de los bytes REALMENTE recibidos y la
+ * decodifica. Si zones.json declara un sha256 o dimensiones y no coinciden, falla:
+ * las coordenadas de la zona solo valen para ese archivo exacto.
+ */
+async function loadReference(zones) {
+  const file = zones.image.file;
+  const url  = "data/reference/" + file;
+  const r = await fetch(url, { cache: "no-cache" });
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  const bytes = await r.arrayBuffer();
+
+  let sha = "no disponible";
+  if (window.crypto && crypto.subtle) {
+    const d = await crypto.subtle.digest("SHA-256", bytes);
+    sha = [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+  if (zones.image.sha256 && sha !== "no disponible" && sha !== zones.image.sha256.toLowerCase()) {
+    throw new Error(`referencia ${file}: SHA-256 ${sha.slice(0, 12)} no coincide con zones.json ${zones.image.sha256.slice(0, 12)}`);
+  }
+
+  const bmp = await createImageBitmap(new Blob([bytes]));
+  if (bmp.width !== zones.image.width || bmp.height !== zones.image.height) {
+    throw new Error(`referencia ${file}: ${bmp.width}x${bmp.height}, zones.json espera ${zones.image.width}x${zones.image.height}`);
+  }
+  return { bmp, file, sha, bytes: bytes.byteLength };
 }
 
 (async () => {
@@ -261,9 +280,15 @@ function loadImage(url) {
 
   try {
     const zones = await loadJson("data/zones.json");
-    const img   = await loadImage("data/reference/" + zones.image.file);
-    _refLabel   = zones.image.kind || zones.image.file;
-    await Localizer.init(cv, img, zones);
+    const ref   = await loadReference(zones);
+    await Localizer.init(cv, ref.bmp, zones);
+    const info  = Localizer.getRefInfo && Localizer.getRefInfo();
+    // Identifica el archivo realmente cargado: nombre, tamaño decodificado y hash de sus bytes
+    _refLabel = `${ref.file} ${ref.bmp.width}x${ref.bmp.height} sha256:${ref.sha.slice(0, 12)}` +
+                (info ? ` · ${info.keypoints} kp${info.boardMask ? " con máscara de placa" : ""}` : "") +
+                (zones.image.kind ? ` · ${zones.image.kind}` : "");
+    window.referenceLoaded = { file: ref.file, sha256: ref.sha, bytes: ref.bytes,
+                               width: ref.bmp.width, height: ref.bmp.height, info };
   } catch (e) {
     _locStatus = "ERROR: " + e.message;
     updateDiag(true);

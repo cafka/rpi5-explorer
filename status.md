@@ -112,6 +112,27 @@ Ronda 2 (tras la corrección): sin defectos que bloqueen la prueba. Hallazgos ap
 - **Referencia sintética**: casi seguro no coincide con la placa real → se necesita foto de la placa de Claudia (ver «Próxima acción»).
 - **Rendimiento**: en escritorio ~230 ms por localización; en el teléfono puede no alcanzar 3 loc/s. El cálculo corre en el hilo principal: el video se ve menos fluido que en T1.
 
+### Segunda prueba en teléfono (12/11/2026, capturas de Claudia) — sin detección
+Evidencia (capturas del navegador, URL pública):
+- En vivo: localizador activo · 4,8 loc/s · proceso p95 233 ms · video 720x1280 → 640x1138 · kp 1500 · **matches 6 · inliers 0** · GPIO sin evidencia · ref: sintética provisional.
+- Congelado (otro encuadre): 5,2 loc/s · p95 212 ms · kp 1500 · matches 2 · inliers 0.
+Conclusión: OpenCV.js y el pipeline corren en el teléfono; la referencia sintética no tiene
+correspondencias con la placa real (esperado). Rendimiento medido en el teléfono con la
+referencia sintética: ≥ 3 loc/s y proceso p95 ≤ 500 ms se cumplen **en esta condición**;
+debe repetirse con la referencia real. Congelar/volver siguen funcionando.
+Dispositivo: la foto adjunta lleva marca «HONOR Magic6 Lite»; falta confirmar que las capturas
+son del mismo teléfono, y registrar sistema operativo y navegador.
+
+### Reemplazo de referencia por foto real — EN CURSO
+- Preparado: `tools/make_reference_from_photo.py` (EXIF→orientación, sin metadatos, escala,
+  `zones.json` con sha256, fixture, vista previa del marcado), máscara de placa en
+  `localizer.js` (excluye cuadrícula y marca de agua), diagnóstico con archivo + dimensiones +
+  SHA-256 de los bytes cargados (error si no coincide con `zones.json`).
+- **Bloqueo**: el archivo original de la foto no está en el disco. La imagen del chat solo se
+  puede ver, no guardar, y puede estar recomprimida. Pedido a Claudia: copiarla en
+  `referencia_original/` (excluida de Git por posibles metadatos GPS).
+- No publicado todavía: la URL pública sigue con la referencia sintética.
+
 ### Verificación en teléfono — PENDIENTE (T2 no aceptado)
 Criterios: etiqueta correcta en ≥ 2 de 3 encuadres distintos · retirada ≤ 0,5 s al tapar o sacar de cuadro · sin etiqueta en ≥ 1 escena sin placa · ≥ 3 loc/s medidas · proceso p95 ≤ 500 ms · registrar modelo, SO, navegador, resolución (la línea DIAGNÓSTICO muestra «video WxH»).
 
@@ -255,8 +276,8 @@ task1_probe.py pertenece al alcance reemplazado. Se conserva sin modificar.
 
 ## Próxima acción
 
-1. **Claudia**: enviar una foto de su Raspberry Pi 5 (ver pedido en el chat).
-2. Kiro: anotar el GPIO sobre esa foto, regenerar `zones.json` y el fixture, repetir pruebas y publicar con `tools/deploy_gh_pages.ps1`.
+1. **Claudia**: copiar el archivo original de la foto en `referencia_original/`.
+2. Kiro: marcar GPIO y contorno de placa sobre el original (verificar con la vista previa), generar la referencia con `tools/make_reference_from_photo.py`, ejecutar pruebas, publicar con `tools/deploy_gh_pages.ps1` y verificar que la URL pública carga ese archivo (SHA-256 en DIAGNÓSTICO).
 3. Claudia: medir T2 en el teléfono con la línea DIAGNÓSTICO.
 4. Si no alcanza 3 loc/s: corrección acotada (menos features ORB / menor resolución / Web Worker) y reevaluar.
 T3 solo con T2 aceptado e indicación expresa.

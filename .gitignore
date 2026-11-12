@@ -2,3 +2,6 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# Fotos originales (pueden contener EXIF/GPS). Solo se publica la copia sin metadatos generada por tools/make_reference_from_photo.py
+referencia_original/

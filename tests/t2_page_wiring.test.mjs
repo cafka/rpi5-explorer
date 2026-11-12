@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -52,6 +53,25 @@ describe("index.html — carga de scripts", () => {
   it("la referencia declarada en zones.json existe", () => {
     const z = JSON.parse(readFileSync(path.join(APP, "data", "zones.json"), "utf8"));
     assert.ok(existsSync(path.join(APP, "data", "reference", z.image.file)), z.image.file);
+  });
+
+  it("zones.json declara el SHA-256 exacto del archivo de referencia", () => {
+    const z = JSON.parse(readFileSync(path.join(APP, "data", "zones.json"), "utf8"));
+    assert.match(z.image.sha256 || "", /^[0-9a-f]{64}$/, "falta image.sha256");
+    const bytes = readFileSync(path.join(APP, "data", "reference", z.image.file));
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), z.image.sha256);
+  });
+
+  it("el fixture de pruebas corresponde a las dimensiones declaradas", () => {
+    const z = JSON.parse(readFileSync(path.join(APP, "data", "zones.json"), "utf8"));
+    const fx = readFileSync(path.join(ROOT, "tests", "fixtures", z.image.test_fixture));
+    assert.equal(fx.length, z.image.width * z.image.height * 4);
+  });
+
+  it("app.js identifica la referencia por los bytes cargados (SHA-256), no solo por el rótulo", () => {
+    const appJs = readFileSync(path.join(APP, "app.js"), "utf8");
+    assert.match(appJs, /crypto\.subtle\.digest\("SHA-256"/);
+    assert.match(appJs, /sha256:\$\{ref\.sha\.slice/);
   });
 });
 

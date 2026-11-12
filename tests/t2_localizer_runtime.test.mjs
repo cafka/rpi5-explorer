@@ -70,7 +70,7 @@ function refMat() {
 }
 
 /** Aplica una homografía conocida a la referencia y devuelve [ImageData, H(3x3 array)]. */
-function warped(Harr, outW = 800, outH = 600) {
+function warped(Harr, outW = zones.image.width, outH = zones.image.height) {
   const src = refMat();
   const Hm  = cv.matFromArray(3, 3, cv.CV_64F, Harr);
   const dst = new cv.Mat();
@@ -164,15 +164,20 @@ describe("localizer.js real + OpenCV.js 4.9.0 (simulado, escritorio)", () => {
     assert.equal(g.visible, false, `evidencia: ${JSON.stringify(g.evidence)}`);
   });
 
-  it("Zona fuera del encuadre (placa desplazada hacia abajo-derecha): no se acepta", () => {
-    // Desplaza la referencia de modo que el GPIO quede por encima/izquierda del cuadro
-    const r = Localizer.locate(warped([1, 0, 250, 0, 1, -110, 0, 0, 1]));
+  it("Zona fuera del encuadre (resto de la placa visible): no se acepta", () => {
+    // Desplaza verticalmente lo justo para sacar el GPIO del cuadro, hacia el borde
+    // más cercano, dejando el resto de la placa dentro.
+    const ys = gpioRef.map(p => p[1]), H = zones.image.height;
+    const dy = (Math.min(...ys) + Math.max(...ys)) / 2 > H / 2
+      ? H - Math.min(...ys) + 4          // GPIO abajo → empujar hacia abajo
+      : -(Math.max(...ys) + 4);          // GPIO arriba → empujar hacia arriba
+    const r = Localizer.locate(warped([1, 0, 0, 0, 1, dy, 0, 0, 1]));
     const g = r.zones.find(z => z.id === "gpio");
     assert.equal(g.visible, false, `evidencia: ${JSON.stringify(g.evidence)}`);
   });
 
   it("Escena negativa (ruido aleatorio): sin etiqueta GPIO", () => {
-    const W = 800, H = 600, data = new Uint8ClampedArray(W * H * 4);
+    const W = zones.image.width, H = zones.image.height, data = new Uint8ClampedArray(W * H * 4);
     let s = 7;
     for (let i = 0; i < data.length; i += 4) {
       s = (s * 1103515245 + 12345) & 0x7fffffff;
